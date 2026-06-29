@@ -64,7 +64,7 @@ extern "C" {
 #define APP_PRINTF(...)   do{ {UTIL_ADV_TRACE_COND_FSend(VLEVEL_ALWAYS, T_REG_OFF, TS_OFF, __VA_ARGS__);} }while(0);
 
 #if defined (APP_LOG_ENABLED) && (APP_LOG_ENABLED == 1)
-#define APP_LOG(TS,VL,...)   do{ {UTIL_ADV_TRACE_COND_FSend(VL, T_REG_OFF, TS, __VA_ARGS__);} }while(0);
+#define APP_LOG(TS,...)   do{ {UTIL_ADV_TRACE_COND_FSend(VLEVEL_M, T_REG_OFF, TS, __VA_ARGS__);} }while(0);
 #elif defined (APP_LOG_ENABLED) && (APP_LOG_ENABLED == 0) /* APP_LOG disabled */
 #define APP_LOG(TS,VL,...)
 #else

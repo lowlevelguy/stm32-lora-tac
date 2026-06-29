@@ -60,7 +60,6 @@ extern SUBGHZ_HandleTypeDef hsubghz;
 extern DMA_HandleTypeDef hdma_usart2_tx;
 extern UART_HandleTypeDef huart2;
 /* USER CODE BEGIN EV */
-
 /* USER CODE END EV */
 
 /******************************************************************************/
@@ -251,6 +250,6 @@ void SUBGHZ_Radio_IRQHandler(void) {
 	/* USER CODE END SUBGHZ_Radio_IRQn 1 */
 }
 
-/* USER CODE BEGIN 1 */
-
-/* USER CODE END 1 */
+void EXTI0_IRQHandler(void) {
+	HAL_GPIO_EXTI_IRQHandler(GPIO_PIN_0);
+}
