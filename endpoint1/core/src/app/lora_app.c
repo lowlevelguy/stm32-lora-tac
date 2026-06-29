@@ -5,24 +5,20 @@
 #include "radio.h"
 #include "stm32_seq.h"
 #include "stm32_timer.h"
-#include "usart.h"
 
-#define LED_BLINK_DURATION			100
 
 extern uint8_t btn_press_count;
 
 static RadioEvents_t RadioEvents;
 
-typedef enum {
-	TX, TX_DONE, TX_TIMEOUT,
-	RX, RX_DONE, RX_TIMEOUT, RX_ERROR,
-	ACK_DONE, ACK_TIMEOUT,
-	UNEXPECTED
-} app_state_t;
-app_state_t state;
-uint8_t timestamp = 0;
+enum ApplicationState state;
+enum RxErrorType rx_error = RX_ERROR_EXTERNAL;
 
-static UTIL_TIMER_Object_t tx_timer, led1_timer, led2_timer, led3_timer;
+uint8_t timestamp = 0, tx_retries = 0;
+packet_t rx_pkt = {0};
+
+static UTIL_TIMER_Object_t tx_timer,
+	tx_led_timer, rx_led_timer, ack_led_timer;
 
 /* Private functions ---------------------------------------------------------*/
 /*!
@@ -47,14 +43,21 @@ static void OnTxDone(void) {
   * @brief Function to be executed on Radio Rx Done event
   * @param  payload ptr of buffer received
   * @param  size buffer size
-  * @param  rssi
-  * @param  LoraSnr_FskCfo
+  * @param  rssi received frame RSSI
+  * @param  snr received frame SNR
   */
-static void OnRxDone(uint8_t* payload, uint16_t size, int16_t rssi, int8_t LoraSnr_FskCfo) {
+static void OnRxDone(uint8_t* payload, uint16_t size, int16_t rssi, int8_t snr) {
 	Radio.Sleep();
-	APP_LOG(TS_ON, "OnTxTimer\n\r");
+	APP_LOG(TS_ON, "OnRxDone\n\r");
 
-	state = RX_DONE;
+	if (size == LORA_APP_PAYLOAD_LEN) {
+		memcpy(&rx_pkt, payload, size);
+		state = RX_DONE;
+	} else {
+		rx_error = RX_ERROR_SIZE_MISMATCH;
+		state = RX_ERROR;
+	}
+
 	UTIL_SEQ_SetTask(LORA_APP_TASK_ID, CFG_SEQ_Prio_0);
 }
 
@@ -81,7 +84,7 @@ static void OnTxTimeout(void) {
   */
 static void OnRxTimeout(void) {
 	Radio.Sleep();
-	APP_LOG(TS_ON, "OnTxTimer\n\r");
+	APP_LOG(TS_ON, "OnRxTimeout\n\r");
 
 	state = RX_TIMEOUT;
 	UTIL_SEQ_SetTask(LORA_APP_TASK_ID, CFG_SEQ_Prio_0);
@@ -92,10 +95,47 @@ static void OnRxTimeout(void) {
   */
 static void OnRxError(void) {
 	Radio.Sleep();
-	APP_LOG(TS_ON, "OnTxTimer\n\r");
+	APP_LOG(TS_ON, "OnRxError\n\r");
 
 	state = RX_ERROR;
+	rx_error = RX_ERROR_EXTERNAL;
 	UTIL_SEQ_SetTask(LORA_APP_TASK_ID, CFG_SEQ_Prio_0);
+}
+
+/**
+ * @brief Attempt to have the SubGHz module transmit the packet pointed to by pkt.
+ * @param pkt pointer to packet_t object
+ */
+static void lora_send(packet_t* pkt) {
+	Radio.Sleep();
+
+	// SubGHz TX Configuration
+	Radio.SetChannel(LORA_APP_FREQ);
+	Radio.SetTxConfig(MODEM_LORA, LORA_APP_TX_POWER, 0,
+		LORA_APP_BW, LORA_APP_SF, LORA_APP_CODINGRATE,
+		LORA_APP_PAYLOAD_LEN, RADIO_LORA_PACKET_FIXED_LENGTH, RADIO_LORA_CRC_ON,
+		false, 0, RADIO_LORA_IQ_NORMAL, LORA_APP_TX_TIMEOUT);
+	Radio.SetMaxPayloadLength(MODEM_LORA, LORA_APP_PAYLOAD_LEN);
+
+	Radio.Send((uint8_t*)pkt, sizeof(packet_t));
+}
+
+/**
+ * @brief Attempt to have the SubGHz module receive a packet.
+ * @param timeout maximum duration to keep listening for in milliseconds
+ */
+static void lora_recv(uint32_t timeout) {
+	Radio.Sleep();
+
+	// SubGHz RX Configuration
+	Radio.SetChannel(LORA_APP_FREQ);
+	Radio.SetRxConfig(MODEM_LORA, LORA_APP_BW, LORA_APP_SF, LORA_APP_CODINGRATE,
+		0, LORA_APP_PREAMBLE_LENGTH, 0,
+		RADIO_LORA_PACKET_FIXED_LENGTH, LORA_APP_PAYLOAD_LEN,
+		RADIO_LORA_CRC_ON, false, 0, RADIO_LORA_IQ_NORMAL, LORA_APP_RX_TIMEOUT);
+	Radio.SetMaxPayloadLength(MODEM_LORA, LORA_APP_PAYLOAD_LEN);
+
+	Radio.Rx(timeout);
 }
 
 /**
@@ -116,43 +156,45 @@ static void OnTxTimer(void* p) {
  * @brief Function executed on led1_timer expiry
  * @param p unused pointer parameter
  */
-static void OnLed1Timer(void* p) {
+static void OnTxLedTimer(void* p) {
 	UNUSED(p);
-	HAL_GPIO_WritePin(LED1_GPIO_Port, LED1_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(LORA_APP_TX_LED_GPIO_PORT, LORA_APP_TX_LED_GPIO_PIN,
+	                  GPIO_PIN_RESET);
 }
 
 /**
  * @brief Function executed on led2_timer expiry
  * @param p unused pointer parameter
  */
-static void OnLed2Timer(void* p) {
+static void OnRxLedTimer(void* p) {
 	UNUSED(p);
-	HAL_GPIO_WritePin(LED2_GPIO_PORT, LED2_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(LORA_APP_RX_LED_GPIO_PORT, LORA_APP_RX_LED_GPIO_PIN,
+	GPIO_PIN_RESET);
 }
 
 /**
  * @brief Function executed on led3_timer expiry
  * @param p unused pointer parameter
  */
-static void OnLed3Timer(void* p) {
+static void OnAckLedTimer(void* p) {
 	UNUSED(p);
-	HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, GPIO_PIN_RESET);
+	HAL_GPIO_WritePin(LORA_APP_ACK_LED_GPIO_PORT, LORA_APP_ACK_LED_GPIO_PIN,
+	GPIO_PIN_RESET);
 }
 
 /**
  * @brief Main Application Process
  */
 static void lora_app_process(void) {
-	packet_t pkt = { .sof = LORA_APP_SOF };
+	packet_t pkt = {.sof = LORA_APP_SOF};
 
 	Radio.Sleep();
-	APP_LOG(TS_ON, "Inside lora_app_process()\n\r");
 
 	switch (state) {
 	case TX:
 		// Make LED1 blink for debugging purposes
 		HAL_GPIO_WritePin(LORA_APP_TX_LED_GPIO_PORT, LORA_APP_TX_LED_GPIO_PIN, GPIO_PIN_SET);
-		UTIL_TIMER_Start(&led1_timer);
+		UTIL_TIMER_Start(&tx_led_timer);
 
 		pkt.source_addr = LORA_APP_MY_ADDR;
 		pkt.dest_addr = LORA_APP_GATEWAY_ADDR;
@@ -170,19 +212,36 @@ static void lora_app_process(void) {
 		pkt.data[2] = btn_press_count;
 
 		APP_LOG(TS_ON, "Committing telemetry: src_addr(%u), dest_addr(%u), "
-				 "telemetry_type(%u), timestamp(%u), telemtry_value(%u).\n\r",
-				 pkt.source_addr, pkt.dest_addr,
-				 pkt.data[0], pkt.data[1], pkt.data[2]);
+		        "telemetry_type(%u), timestamp(%u), telemtry_value(%u).\n\r",
+		        pkt.source_addr, pkt.dest_addr,
+		        pkt.data[0], pkt.data[1], pkt.data[2]);
+
+		lora_send(&pkt);
 		break;
+
 	case TX_DONE:
+		// Listen for any commands
+		APP_LOG(TS_ON, "Listening for any commands for 2 seconds...\n\r");
+		lora_recv(LORA_APP_RX_TIMEOUT);
+		break;
+
 	case TX_TIMEOUT:
-	case RX:
+		if (tx_retries < LORA_APP_TX_MAX_RETRIES) {
+			APP_LOG(TS_ON, "")
+			lora_send(&pkt);
+			tx_retries++;
+		}
+		break;
+
 	case RX_DONE:
 	case RX_TIMEOUT:
 	case RX_ERROR:
 	case ACK_DONE:
 	case ACK_TIMEOUT:
+		break;
+	case UNEXPECTED:
 	default:
+		APP_LOG(TS_ON, "Unexpected FSM state reached!\n\r");
 		break;
 	}
 }
@@ -190,27 +249,27 @@ static void lora_app_process(void) {
 /* Public functions -----------------------------------------------------------*/
 void lora_app_init(void) {
 	APP_LOG(TS_OFF,
-		"\n\rLoRa PHY Endpoint 1\n\r"
-		"Application version: %u.%u\n\r"
-		"Sensors:\n\r"
-		"\t- button click counter\n\r"
-		"\n\r"
-		"Actuators:\n\r"
-		"\t- green LED\n\r",
-	LORA_APP_VERSION_MAJOR, LORA_APP_VERSION_MINOR);
+	        "\n\rLoRa PHY Endpoint 1\n\r"
+	        "Application version: %u.%u\n\r"
+	        "Sensors:\n\r"
+	        "\t- button click counter\n\r"
+	        "\n\r"
+	        "Actuators:\n\r"
+	        "\t- green LED\n\r",
+	        LORA_APP_VERSION_MAJOR, LORA_APP_VERSION_MINOR);
 
 	// Initialize periodic timer for sensor reports
 	UTIL_TIMER_Create(&tx_timer, LORA_APP_TX_PERIOD, UTIL_TIMER_PERIODIC,
-		OnTxTimer, NULL);
+	                  OnTxTimer, NULL);
 	UTIL_TIMER_Start(&tx_timer);
 
 	// Initialize LED blinking timers
-	UTIL_TIMER_Create(&led1_timer, LED_BLINK_DURATION, UTIL_TIMER_ONESHOT,
-		OnLed1Timer, NULL);
-	UTIL_TIMER_Create(&led2_timer, LED_BLINK_DURATION, UTIL_TIMER_ONESHOT,
-		OnLed2Timer, NULL);
-	UTIL_TIMER_Create(&led3_timer, LED_BLINK_DURATION, UTIL_TIMER_ONESHOT,
-		OnLed3Timer, NULL);
+	UTIL_TIMER_Create(&tx_led_timer, APP_LORA_LED_BLINK_DURATION, UTIL_TIMER_ONESHOT,
+	                  OnTxLedTimer, NULL);
+	UTIL_TIMER_Create(&rx_led_timer, APP_LORA_LED_BLINK_DURATION, UTIL_TIMER_ONESHOT,
+	                  OnRxLedTimer, NULL);
+	UTIL_TIMER_Create(&ack_led_timer, APP_LORA_LED_BLINK_DURATION, UTIL_TIMER_ONESHOT,
+	                  OnAckLedTimer, NULL);
 
 	// Radio initialization
 	RadioEvents.TxDone = OnTxDone;

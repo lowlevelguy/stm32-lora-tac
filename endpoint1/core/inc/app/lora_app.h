@@ -6,6 +6,7 @@ extern "C" {
 #endif
 
 #include <stdint.h>
+#include "main.h"
 
 /* ---- Application information ---- */
 #define LORA_APP_VERSION_MAJOR			1
@@ -22,7 +23,11 @@ extern "C" {
 
 /* ---- Application configuration ---- */
 #define LORA_APP_TASK_ID				(1 << 0)
+#define LORA_APP_RX_TIMEOUT				2000
 #define LORA_APP_TX_PERIOD				5000
+#define LORA_APP_TX_TIMEOUT				500
+#define LORA_APP_TX_MAX_RETRIES			3
+#define APP_LORA_LED_BLINK_DURATION		100
 
 /* ---- Packet ----*/
 #define LORA_APP_SOF					0xA5
@@ -30,14 +35,27 @@ extern "C" {
 #define LORA_APP_MY_ADDR				0x01
 
 /* ---- Debug LED Mapping ---- */
-#define LORA_APP_TX_LED_GPIO_PORT		GPIOB
-#define LORA_APP_TX_LED_GPIO_PIN		GPIO_PIN_9
-#define LORA_APP_RX_LED_GPIO_PORT		GPIOB
-#define LORA_APP_RX_LED_GPIO_PIN		GPIO_PIN_11
-#define LORA_APP_ACK_LED_GPIO_PORT		GPIOB
-#define LORA_APP_ACK_LED_GPIO_PIN		GPIO_PIN_15
+#define LORA_APP_TX_LED_GPIO_PORT		LED1_GPIO_Port
+#define LORA_APP_TX_LED_GPIO_PIN		LED1_PIN
+#define LORA_APP_RX_LED_GPIO_PORT		LED2_GPIO_Port
+#define LORA_APP_RX_LED_GPIO_PIN		LED2_PIN
+#define LORA_APP_ACK_LED_GPIO_PORT		LED3_GPIO_Port
+#define LORA_APP_ACK_LED_GPIO_PIN		LED3_PIN
 
 /* Types ----------------------------------------------------------------------*/
+/* ---- Application state types ---- */
+enum ApplicationState {
+	TX, TX_DONE, TX_TIMEOUT,
+	RX_DONE, RX_TIMEOUT, RX_ERROR,
+	ACK_DONE, ACK_TIMEOUT,
+	UNEXPECTED
+};
+
+enum RxErrorType {
+	RX_ERROR_EXTERNAL,
+	RX_ERROR_SIZE_MISMATCH,
+};
+
 /* ---- Packet related types ---- */
 enum PacketDataType {
 	PACKET_DATA_TYPE_TELEMETRY = 0x01,
