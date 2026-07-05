@@ -45,6 +45,7 @@ set(MX_Application_Src
     ${CMAKE_CURRENT_SOURCE_DIR}/../../core/src/sysmem.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../core/src/syscalls.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../../core/src/app/lora_app.c
+	${CMAKE_CURRENT_SOURCE_DIR}/../../core/src/app/commands.c
 	${CMAKE_CURRENT_SOURCE_DIR}/../../../Target/radio_board_if.c
     ${CMAKE_CURRENT_SOURCE_DIR}/../../startup_stm32wl55xx_cm4.s
 )

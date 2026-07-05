@@ -1,5 +1,5 @@
-#ifndef __SUBGHZ_PHY_APP_H__
-#define __SUBGHZ_PHY_APP_H__
+#ifndef __LORA_APP_H_
+#define __LORA_APP_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -21,16 +21,27 @@ extern "C" {
 #define LORA_APP_PAYLOAD_LEN			sizeof(packet_t)
 
 /* ---- Application configuration ---- */
-#define LORA_APP_TASK_ID				(1 << 0)
+#define LORA_APP_TASK_BASE_ID			(1 << 0)
+#define LORA_APP_TASK_MAX_COUNT			16
+
+#define LORA_APP_RX_MAX_COUNT			6
+#define LORA_APP_RX_TIMEOUT				2000
 #define LORA_APP_TX_PERIOD				5000
+
+#define LORA_APP_TX_MAX_COUNT			6
+#define LORA_APP_TX_TIMEOUT				500
+#define LORA_APP_TX_MAX_RETRIES			3
+#define APP_LORA_LED_BLINK_DURATION		100
+
+/* ---- Packet ----*/
+#define LORA_APP_SOF					0xA5
+#define LORA_APP_MY_ADDR				0x00
 
 /* ---- Debug LED Mapping ---- */
 #define LORA_APP_TX_LED_GPIO_PORT		GPIOB
 #define LORA_APP_TX_LED_GPIO_PIN		GPIO_PIN_9
 #define LORA_APP_RX_LED_GPIO_PORT		GPIOB
 #define LORA_APP_RX_LED_GPIO_PIN		GPIO_PIN_11
-#define LORA_APP_ACK_LED_GPIO_PORT		GPIOB
-#define LORA_APP_ACK_LED_GPIO_PIN		GPIO_PIN_15
 
 /* Types ----------------------------------------------------------------------*/
 /* ---- Packet related types ---- */
@@ -54,6 +65,10 @@ typedef struct {
 			data[4];
 } packet_t;
 
+/* ---- Error codes ---- */
+enum {
+	ERR_TX_EXHAUSTED = 1
+};
 
 /* API functions --------------------------------------------------------------*/
 /**
@@ -61,8 +76,15 @@ typedef struct {
   */
 void lora_app_init(void);
 
+/**
+ * @brief Transmit packet pointed to by pkt over LoRa.
+ * @param pkt pointer to packet_t object
+ * @return 0 on success, positive integer error code on error
+ */
+uint8_t lora_app_send(packet_t* pkt);
+
 #ifdef __cplusplus
 }
 #endif
 
-#endif /*__SUBGHZ_PHY_APP_H__*/
+#endif /* __LORA_APP_H_ */

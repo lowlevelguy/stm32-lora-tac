@@ -1,5 +1,5 @@
-#ifndef __SUBGHZ_PHY_APP_H__
-#define __SUBGHZ_PHY_APP_H__
+#ifndef __LORA_APP_H_
+#define __LORA_APP_H_
 
 #ifdef __cplusplus
 extern "C" {
@@ -7,6 +7,7 @@ extern "C" {
 
 #include <stdint.h>
 #include "main.h"
+#include "app/commands.h"
 
 /* ---- Application information ---- */
 #define LORA_APP_VERSION_MAJOR			1
@@ -39,8 +40,8 @@ extern "C" {
 #define LORA_APP_TX_LED_GPIO_PIN		LED1_PIN
 #define LORA_APP_RX_LED_GPIO_PORT		LED2_GPIO_Port
 #define LORA_APP_RX_LED_GPIO_PIN		LED2_PIN
-#define LORA_APP_ACK_LED_GPIO_PORT		LED3_GPIO_Port
-#define LORA_APP_ACK_LED_GPIO_PIN		LED3_PIN
+#define LORA_APP_ACK_LED_GPIO_PORT		LORA_APP_TX_LED_GPIO_PORT
+#define LORA_APP_ACK_LED_GPIO_PIN		LORA_APP_TX_LED_GPIO_PIN
 
 /* Types ----------------------------------------------------------------------*/
 /* ---- Application state types ---- */
@@ -65,10 +66,6 @@ enum PacketDataType {
 	PACKET_DATA_TYPE_RESERVED = 0xFF,
 };
 
-enum TelemetryType {
-	TELEMETRY_TYPE_BUTTON_PRESS_COUNT
-};
-
 typedef struct {
 	uint8_t sof,
 			source_addr,
@@ -77,6 +74,9 @@ typedef struct {
 			data[4];
 } packet_t;
 
+enum TelemetryType {
+	TELEMETRY_TYPE_BUTTON_PRESS_COUNT
+};
 
 /* API functions --------------------------------------------------------------*/
 /**
@@ -88,4 +88,4 @@ void lora_app_init(void);
 }
 #endif
 
-#endif /*__SUBGHZ_PHY_APP_H__*/
+#endif /* __LORA_APP_H_ */
