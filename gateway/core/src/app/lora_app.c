@@ -188,10 +188,10 @@ static void lora_recv() {
 	Radio.SetRxConfig(MODEM_LORA, LORA_APP_BW, LORA_APP_SF, LORA_APP_CODINGRATE,
 		0, LORA_APP_PREAMBLE_LENGTH, 0,
 		RADIO_LORA_PACKET_FIXED_LENGTH, LORA_APP_PAYLOAD_LEN,
-		RADIO_LORA_CRC_ON, false, 0, RADIO_LORA_IQ_NORMAL, false);
+		RADIO_LORA_CRC_ON, false, 0, RADIO_LORA_IQ_NORMAL, true);
 	Radio.SetMaxPayloadLength(MODEM_LORA, LORA_APP_PAYLOAD_LEN);
 
-	Radio.Rx(2000);
+	Radio.Rx(0xFFFFFF);
 }
 
 /**
@@ -238,7 +238,6 @@ static void OnRxLedTimer(void* p) {
  * @brief Main Application Process
  */
 static void lora_app_process(void) {
-	APP_LOG(TS_ON, "Lora app process\n\r");
 	packet_t pkt;
 
 	switch (states[state_read_bufidx]) {
