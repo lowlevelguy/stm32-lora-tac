@@ -114,7 +114,7 @@ extern "C" {
 /**
   * @brief default number of tasks configured in sequencer
   */
-#define UTIL_SEQ_CONF_TASK_NBR    CFG_SEQ_Task_NBR
+#define UTIL_SEQ_CONF_TASK_NBR    32
 
 /**
   * @brief default value of priority task

@@ -25,7 +25,6 @@ enum RxErrorType {
 	RX_ERROR_SIZE_MISMATCH,
 };
 
-
 static RadioEvents_t RadioEvents;
 
 static enum ApplicationState states[LORA_APP_TASK_MAX_COUNT];
@@ -90,7 +89,7 @@ static void OnRxDone(uint8_t* payload, uint16_t size, int16_t rssi, int8_t snr) 
 			}
 
 		cur_state_write_bufidx = state_write_bufidx;
-		state_read_bufidx = (state_read_bufidx + 1) % LORA_APP_TASK_MAX_COUNT;
+		state_write_bufidx = (state_write_bufidx + 1) % LORA_APP_TASK_MAX_COUNT;
 		LORA_APP_CRITICAL_SECTION_END();
 	}
 
@@ -182,17 +181,17 @@ static void OnRxError(void) {
  * @brief Make the SubGHz module enter continuous RX mode
  */
 static void lora_recv() {
-	Radio.Sleep();
+	Radio.Standby();
 
 	// SubGHz RX Configuration
 	Radio.SetChannel(LORA_APP_FREQ);
 	Radio.SetRxConfig(MODEM_LORA, LORA_APP_BW, LORA_APP_SF, LORA_APP_CODINGRATE,
 		0, LORA_APP_PREAMBLE_LENGTH, 0,
 		RADIO_LORA_PACKET_FIXED_LENGTH, LORA_APP_PAYLOAD_LEN,
-		RADIO_LORA_CRC_ON, false, 0, RADIO_LORA_IQ_NORMAL, true);
+		RADIO_LORA_CRC_ON, false, 0, RADIO_LORA_IQ_NORMAL, false);
 	Radio.SetMaxPayloadLength(MODEM_LORA, LORA_APP_PAYLOAD_LEN);
 
-	Radio.Rx(0xFFFFF);
+	Radio.Rx(2000);
 }
 
 /**
@@ -201,7 +200,7 @@ static void lora_recv() {
  * @param bufidx index of the target packet in the TX packets ring buffer
  */
 static void lora_send(uint8_t bufidx) {
-	Radio.Sleep();
+	Radio.Standby();
 
 	// SubGHz TX Configuration
 	Radio.SetChannel(LORA_APP_FREQ);
@@ -239,6 +238,7 @@ static void OnRxLedTimer(void* p) {
  * @brief Main Application Process
  */
 static void lora_app_process(void) {
+	APP_LOG(TS_ON, "Lora app process\n\r");
 	packet_t pkt;
 
 	switch (states[state_read_bufidx]) {
@@ -248,7 +248,7 @@ static void lora_app_process(void) {
 		UTIL_TIMER_Start(&rx_led_timer);
 
 		// Validate packet SOF
-		if (rx_pkts[rx_read_bufidx].sof == LORA_APP_SOF) {
+		if (rx_pkts[rx_read_bufidx].sof == APP_SOF) {
 			// Populate data[3] with reception SNR
 			memcpy(&pkt, &rx_pkts[rx_read_bufidx], sizeof(packet_t));
 			pkt.data[3] = snrs[rx_read_bufidx];
@@ -308,12 +308,12 @@ void lora_app_init(void) {
 	APP_LOG(TS_OFF,
 			"\n\rLoRa PHY Gateway\n\r"
 			"Application version: %u.%u\n\r",
-			LORA_APP_VERSION_MAJOR, LORA_APP_VERSION_MINOR);
+			APP_VERSION_MAJOR, APP_VERSION_MINOR);
 
 	// Initialize LED blinking timers
-	UTIL_TIMER_Create(&tx_led_timer, APP_LORA_LED_BLINK_DURATION, UTIL_TIMER_ONESHOT,
+	UTIL_TIMER_Create(&tx_led_timer, LORA_APP_LED_BLINK_DURATION, UTIL_TIMER_ONESHOT,
 					  OnTxLedTimer, NULL);
-	UTIL_TIMER_Create(&rx_led_timer, APP_LORA_LED_BLINK_DURATION, UTIL_TIMER_ONESHOT,
+	UTIL_TIMER_Create(&rx_led_timer, LORA_APP_LED_BLINK_DURATION, UTIL_TIMER_ONESHOT,
 					  OnRxLedTimer, NULL);
 
 	// Radio initialization
@@ -333,12 +333,12 @@ void lora_app_init(void) {
 	lora_recv();
 }
 
-uint8_t lora_app_send(packet_t* pkt) {
+AppStatus_t lora_app_send(packet_t* pkt) {
 	LORA_APP_CRITICAL_SECTION_BEGIN();
 	// Ignore TX request if the buffer is exhausted
 	if ((tx_write_bufidx + 1) % LORA_APP_TX_MAX_COUNT == tx_write_bufidx) {
 		LORA_APP_CRITICAL_SECTION_END();
-		return ERR_TX_EXHAUSTED;
+		return APP_STATUS_ERR_TX_EXHAUSTED;
 	}
 
 	uint8_t cur_tx_bufidx = tx_write_bufidx;
@@ -350,5 +350,5 @@ uint8_t lora_app_send(packet_t* pkt) {
 	memcpy(&tx_pkts[cur_tx_bufidx], pkt, sizeof(packet_t));
 
 	lora_send(cur_tx_bufidx);
-	return 0;
+	return APP_STATUS_OK;
 }
