@@ -1,6 +1,8 @@
 #ifndef __APP_CONFIG_H_
 #define __APP_CONFIG_H_
 
+#include <stdint.h>
+
 /* Gateway application configuration -----------------------------------------*/
 /* ---- Application version ---- */
 #define APP_VERSION_MAJOR				1
@@ -27,11 +29,8 @@
 #define LORA_APP_TASK_BASE_ID			(1 << 0)
 #define LORA_APP_TASK_MAX_COUNT			16
 
-#define LORA_APP_RX_MAX_COUNT			6
-#define LORA_APP_RX_TIMEOUT				2000
-#define LORA_APP_TX_PERIOD				5000
-
-#define LORA_APP_TX_MAX_COUNT			6
+#define LORA_APP_RX_MAX_COUNT			8
+#define LORA_APP_TX_MAX_COUNT			4
 #define LORA_APP_TX_TIMEOUT				500
 #define LORA_APP_TX_MAX_RETRIES			3
 
@@ -41,6 +40,19 @@
 #define LORA_APP_TX_LED_GPIO_PIN		GPIO_PIN_9
 #define LORA_APP_RX_LED_GPIO_PORT		GPIOB
 #define LORA_APP_RX_LED_GPIO_PIN		GPIO_PIN_11
+
+
+/* UART Application Configuration --------------------------------------------*/
+/* ---- Application configuration ---- */
+#define UART_APP_MY_ADDR				APP_MY_ADDR
+
+#define UART_APP_TASK_BASE_ID			(1 << 16)
+#define UART_APP_TASK_MAX_COUNT			16
+
+#define UART_APP_RX_MAX_COUNT			6
+#define UART_APP_TX_MAX_COUNT			6
+#define UART_APP_TX_TIMEOUT				500
+#define UART_APP_TX_MAX_RETRIES			3
 
 
 /* MAC Layer Definition ------------------------------------------------------*/
@@ -56,7 +68,8 @@ typedef struct {
 /* Application status --------------------------------------------------------*/
 typedef enum {
 	APP_STATUS_OK,
-	APP_STATUS_ERR_TX_EXHAUSTED
+	APP_STATUS_ERR_TX_EXHAUSTED,
+	APP_STATUS_ERR_TX_FAILED
 } AppStatus_t ;
 
 

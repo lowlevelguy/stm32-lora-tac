@@ -5,7 +5,6 @@
 extern "C" {
 #endif
 
-#include <stdint.h>
 #include "app/app_config.h"
 
 /**
@@ -16,7 +15,7 @@ void lora_app_init(void);
 /**
  * @brief Transmit packet pointed to by pkt over LoRa.
  * @param pkt pointer to packet_t object
- * @return 0 on success, positive integer error code on error
+ * @return APP_STATUS_OK on success, positive integer error code on error
  */
 AppStatus_t lora_app_send(packet_t* pkt);
 
