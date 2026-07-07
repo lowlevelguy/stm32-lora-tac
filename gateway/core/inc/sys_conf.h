@@ -47,7 +47,7 @@ extern "C" {
 /**
   * @brief Enable trace logs
   */
-#define APP_LOG_ENABLED                      1
+#define APP_LOG_ENABLED                      0
 
 /**
   * @brief Activate monitoring (probes) of some internal RF signals for debug purpose

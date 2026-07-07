@@ -18,10 +18,14 @@
 /* USER CODE END Header */
 /* Includes ------------------------------------------------------------------*/
 #include "main.h"
-#include "app/lora_app.h"
 #include "gpio.h"
-#include "stm32_seq.h"
+#include "dma.h"
+#include "usart.h"
 #include "sys_app.h"
+
+#include "app/lora_app.h"
+
+#include "stm32_seq.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -88,6 +92,12 @@ int main(void) {
 
 	/* Initialize all configured peripherals */
 	MX_GPIO_Init();
+	MX_DMA_Init();
+	MX_USART2_UART_Init();
+	/* Enable USART2 wake-up interrupt */
+	LL_EXTI_EnableIT_0_31(LL_EXTI_LINE_27);
+
+	/* Initialize Utilities */
 	SystemApp_Init();
 
 	// Initialize LoRa application

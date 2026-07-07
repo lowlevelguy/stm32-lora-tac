@@ -94,12 +94,12 @@ void SystemApp_Init(void) {
 	/* Initializes the SW probes pins and the monitor RF pins via Alternate Function */
 	DBG_Init();
 
-	/*Initialize the terminal */
-	UTIL_ADV_TRACE_Init();
-	UTIL_ADV_TRACE_RegisterTimeStampFunction(TimestampNow);
-
-	/*Set verbose LEVEL*/
-	UTIL_ADV_TRACE_SetVerboseLevel(VERBOSE_LEVEL);
+	// /*Initialize the terminal */
+	// UTIL_ADV_TRACE_Init();
+	// UTIL_ADV_TRACE_RegisterTimeStampFunction(TimestampNow);
+	//
+	// /*Set verbose LEVEL*/
+	// UTIL_ADV_TRACE_SetVerboseLevel(VERBOSE_LEVEL);
 
 	/*Init low power manager*/
 	UTIL_LPM_Init();

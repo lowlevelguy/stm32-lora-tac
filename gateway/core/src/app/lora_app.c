@@ -1,6 +1,6 @@
-#include "app/lora_app.h"
-
 #include <stdio.h>
+
+#include "app/lora_app.h"
 
 #include "platform.h"
 #include "sys_app.h"
@@ -15,9 +15,15 @@
 #define LORA_APP_CRITICAL_SECTION_END()	\
 	__set_PRIMASK(primask)
 
+/* Bitmasks for ring buffer indexing.
+ * Performing a bitwise AND with these masks corresponds to performing a modulo
+ * operation with the corresponding LORA_APP_XX_MAX_COUNT value, when it is a
+ * power of 2.
+ */
 #define STATE_BUFINDX_MASK		(LORA_APP_TASK_MAX_COUNT-1)
 #define RX_BUFINDX_MASK			(LORA_APP_RX_MAX_COUNT-1)
 #define TX_BUFINDX_MASK			(LORA_APP_TX_MAX_COUNT-1)
+
 
 enum ApplicationState {
 	TX_DONE, TX_TIMEOUT,
@@ -60,13 +66,10 @@ static void lora_trap(void) {
  * @brief Function to be executed on Radio Tx Done event
  */
 static void OnTxDone(void) {
-	APP_LOG(TS_ON, "OnTxDone\n\r");
-
 	LORA_APP_CRITICAL_SECTION_BEGIN();
 	// Ignore any events on task scheduling exhaustion
 	if (state_write_bufidx - state_read_bufidx == LORA_APP_TASK_MAX_COUNT) {
 		LORA_APP_CRITICAL_SECTION_END();
-		APP_LOG(TS_ON, "LoRa scheduling exhausted.\n\r");
 		return;
 	}
 
@@ -88,15 +91,12 @@ static void OnTxDone(void) {
   * @param  snr
   */
 static void OnRxDone(uint8_t* payload, uint16_t size, int16_t rssi, int8_t snr) {
-	APP_LOG(TS_ON, "OnRxDone\n\r");
-
 	uint8_t cur_state_write_bufidx;
 	{
 		LORA_APP_CRITICAL_SECTION_BEGIN();
 		// Ignore any events on task scheduling exhaustion
 		if (state_write_bufidx - state_read_bufidx == LORA_APP_TASK_MAX_COUNT) {
 			LORA_APP_CRITICAL_SECTION_END();
-			APP_LOG(TS_ON, "LoRa scheduling exhausted.\n\r");
 			return;
 		}
 
@@ -112,7 +112,6 @@ static void OnRxDone(uint8_t* payload, uint16_t size, int16_t rssi, int8_t snr) 
 			// Ignore any events on RX buffers exhaustion
 			if (rx_write_bufidx - rx_read_bufidx == LORA_APP_RX_MAX_COUNT) {
 				LORA_APP_CRITICAL_SECTION_END();
-				APP_LOG(TS_ON, "RX buffers exhausted.\n\r");
 				return;
 			}
 
@@ -137,13 +136,10 @@ static void OnRxDone(uint8_t* payload, uint16_t size, int16_t rssi, int8_t snr) 
   * @brief Function executed on Radio Tx Timeout event
   */
 static void OnTxTimeout(void) {
-	APP_LOG(TS_ON, "OnTxTimeout\n\r");
-
 	LORA_APP_CRITICAL_SECTION_BEGIN();
 	// Ignore any events on task scheduling exhaustion
 	if (state_write_bufidx - state_read_bufidx == LORA_APP_TASK_MAX_COUNT) {
 		LORA_APP_CRITICAL_SECTION_END();
-		APP_LOG(TS_ON, "LoRa scheduling exhausted.\n\r");
 		return;
 	}
 
@@ -169,13 +165,10 @@ static void OnRxTimeout(void) {
   * @brief Function executed on Radio Rx Error event
   */
 static void OnRxError(void) {
-	APP_LOG(TS_ON, "OnRxError\n\r");
-
 	LORA_APP_CRITICAL_SECTION_BEGIN();
 	// Ignore any events on task scheduling exhaustion
 	if (state_write_bufidx - state_read_bufidx == LORA_APP_TASK_MAX_COUNT) {
 		LORA_APP_CRITICAL_SECTION_END();
-		APP_LOG(TS_ON, "LoRa scheduling exhausted.\n\r");
 		return;
 	}
 
