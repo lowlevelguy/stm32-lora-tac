@@ -49,8 +49,8 @@
 #define UART_APP_TASK_BASE_ID			(1 << 16)
 #define UART_APP_TASK_MAX_COUNT			16
 
-#define UART_APP_RX_MAX_COUNT			6
-#define UART_APP_TX_MAX_COUNT			6
+#define UART_APP_RX_MAX_COUNT			8
+#define UART_APP_TX_MAX_COUNT			4
 #define UART_APP_TX_TIMEOUT				500
 #define UART_APP_TX_MAX_RETRIES			3
 
@@ -68,7 +68,7 @@ typedef struct {
 /* Application status --------------------------------------------------------*/
 typedef enum {
 	APP_STATUS_OK,
-	APP_STATUS_ERR_TX_EXHAUSTED,
+	APP_STATUS_ERR_TX_BUFFER_FULL,
 	APP_STATUS_ERR_TX_FAILED
 } AppStatus_t ;
 

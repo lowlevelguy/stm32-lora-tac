@@ -8,16 +8,16 @@ extern "C" {
 #include "app/app_config.h"
 
 /**
-  * @brief  Init Subghz Application
+  * @brief Init SubGHz application
   */
 void lora_app_init(void);
 
 /**
- * @brief Transmit packet pointed to by pkt over LoRa.
+ * @brief Push packet pointed to by pkt to SubGHz TX FIFO
  * @param pkt pointer to packet_t object
  * @return APP_STATUS_OK on success, positive integer error code on error
  */
-AppStatus_t lora_app_send(packet_t* pkt);
+AppStatus_t lora_schedule_send(packet_t* pkt);
 
 #ifdef __cplusplus
 }

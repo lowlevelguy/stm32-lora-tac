@@ -34,21 +34,23 @@ enum ApplicationState {
 enum RxErrorType {
 	RX_ERROR_EXTERNAL,
 	RX_ERROR_SIZE_MISMATCH,
+	RX_ERROR_RX_BUFFER_FULL
 };
 
 static RadioEvents_t RadioEvents;
 
-static enum ApplicationState states[LORA_APP_TASK_MAX_COUNT];
-static uint8_t state_write_bufidx = 0, state_read_bufidx = 0;
+static volatile enum ApplicationState states[LORA_APP_TASK_MAX_COUNT];
+static volatile uint8_t state_write_bufidx = 0, state_read_bufidx = 0;
 
 static packet_t rx_pkts[LORA_APP_RX_MAX_COUNT];
-static uint8_t rx_write_bufidx = 0, rx_read_bufidx = 0;
+static volatile uint8_t rx_write_bufidx = 0, rx_read_bufidx = 0;
 
 static packet_t tx_pkts[LORA_APP_TX_MAX_COUNT];
 static uint8_t tx_retries[LORA_APP_TX_MAX_COUNT];
-static uint8_t tx_write_bufidx = 0, tx_read_bufidx = 0;
+static volatile uint8_t tx_write_bufidx = 0, tx_read_bufidx = 0;
+static volatile bool tx_busy = false;
 
-static enum RxErrorType rx_error[LORA_APP_TASK_MAX_COUNT];
+static volatile enum RxErrorType rx_error[LORA_APP_TASK_MAX_COUNT];
 
 static UTIL_TIMER_Object_t tx_led_timer, rx_led_timer;
 
@@ -63,9 +65,62 @@ static void lora_trap(void) {
 }
 
 /**
+ * @brief Make the SubGHz module enter continuous RX mode
+ */
+static void lora_recv() {
+	Radio.Standby();
+
+	// SubGHz RX Configuration
+	Radio.SetChannel(LORA_APP_FREQ);
+	Radio.SetRxConfig(MODEM_LORA, LORA_APP_BW, LORA_APP_SF, LORA_APP_CODINGRATE,
+		0, LORA_APP_PREAMBLE_LENGTH, 0,
+		RADIO_LORA_PACKET_FIXED_LENGTH, LORA_APP_PAYLOAD_LEN,
+		RADIO_LORA_CRC_ON, false, 0, RADIO_LORA_IQ_NORMAL, true);
+	Radio.SetMaxPayloadLength(MODEM_LORA, LORA_APP_PAYLOAD_LEN);
+
+	Radio.Rx(0xFFFFFF);
+}
+
+/**
+ * @brief Command the SubGHz module to perform the head scheduled TX.
+ */
+static void lora_send() {
+	// Trap if the SubGHz TX is busy. This state should never be reached.
+	if (tx_busy) {
+		lora_trap();
+	}
+
+	LORA_APP_CRITICAL_SECTION_BEGIN();
+	// If the ring buffer is empty, no TX is scheduled
+	if (tx_write_bufidx == tx_read_bufidx) {
+		LORA_APP_CRITICAL_SECTION_END();
+		return;
+	}
+	uint8_t cur_tx_read_bufidx = tx_read_bufidx;
+
+	// Claim TX resource
+	tx_busy = true;
+	LORA_APP_CRITICAL_SECTION_END();
+
+	Radio.Standby();
+
+	// SubGHz TX Configuration
+	Radio.SetChannel(LORA_APP_FREQ);
+	Radio.SetTxConfig(MODEM_LORA, LORA_APP_TX_POWER, 0,
+		LORA_APP_BW, LORA_APP_SF, LORA_APP_CODINGRATE,
+		LORA_APP_PAYLOAD_LEN, RADIO_LORA_PACKET_FIXED_LENGTH, RADIO_LORA_CRC_ON,
+		false, 0, RADIO_LORA_IQ_NORMAL, LORA_APP_TX_TIMEOUT);
+	Radio.SetMaxPayloadLength(MODEM_LORA, LORA_APP_PAYLOAD_LEN);
+
+	Radio.Send((uint8_t*)&tx_pkts[cur_tx_read_bufidx], sizeof(packet_t));
+}
+
+/**
  * @brief Function to be executed on Radio Tx Done event
  */
 static void OnTxDone(void) {
+	tx_busy = false;
+
 	LORA_APP_CRITICAL_SECTION_BEGIN();
 	// Ignore any events on task scheduling exhaustion
 	if (state_write_bufidx - state_read_bufidx == LORA_APP_TASK_MAX_COUNT) {
@@ -84,13 +139,16 @@ static void OnTxDone(void) {
 }
 
 /**
-  * @brief Function to be executed on Radio Rx Done event
-  * @param  payload ptr of buffer received
-  * @param  size buffer size
-  * @param  rssi
-  * @param  snr
-  */
+ * @brief Function to be executed on Radio Rx Done event
+ * @param  payload ptr of buffer received
+ * @param  size buffer size
+ * @param  rssi unused
+ * @param  snr unused
+ */
 static void OnRxDone(uint8_t* payload, uint16_t size, int16_t rssi, int8_t snr) {
+	UNUSED(snr);
+	UNUSED(rssi);
+
 	uint8_t cur_state_write_bufidx;
 	{
 		LORA_APP_CRITICAL_SECTION_BEGIN();
@@ -109,9 +167,17 @@ static void OnRxDone(uint8_t* payload, uint16_t size, int16_t rssi, int8_t snr) 
 		uint8_t cur_rx_write_bufidx;
 		{
 			LORA_APP_CRITICAL_SECTION_BEGIN();
-			// Ignore any events on RX buffers exhaustion
+			// On RX buffer exhaustion, register event as RX_ERROR
 			if (rx_write_bufidx - rx_read_bufidx == LORA_APP_RX_MAX_COUNT) {
 				LORA_APP_CRITICAL_SECTION_END();
+
+				rx_error[cur_state_write_bufidx & STATE_BUFINDX_MASK] =
+					RX_ERROR_RX_BUFFER_FULL;
+				states[cur_state_write_bufidx & STATE_BUFINDX_MASK] = RX_ERROR;
+				UTIL_SEQ_SetTask(
+					LORA_APP_TASK_BASE_ID <<
+						(cur_state_write_bufidx & STATE_BUFINDX_MASK),
+					CFG_SEQ_Prio_0);
 				return;
 			}
 
@@ -133,9 +199,11 @@ static void OnRxDone(uint8_t* payload, uint16_t size, int16_t rssi, int8_t snr) 
 }
 
 /**
-  * @brief Function executed on Radio Tx Timeout event
-  */
+ * @brief Function executed on Radio Tx Timeout event
+ */
 static void OnTxTimeout(void) {
+	tx_busy = false;
+
 	LORA_APP_CRITICAL_SECTION_BEGIN();
 	// Ignore any events on task scheduling exhaustion
 	if (state_write_bufidx - state_read_bufidx == LORA_APP_TASK_MAX_COUNT) {
@@ -154,16 +222,16 @@ static void OnTxTimeout(void) {
 }
 
 /**
-  * @brief Function executed on Radio Rx Timeout event
-  * @note Should never execute
-  */
+ * @brief Function executed on Radio Rx Timeout event
+ * @note Should never execute
+ */
 static void OnRxTimeout(void) {
 	lora_trap();
 }
 
 /**
-  * @brief Function executed on Radio Rx Error event
-  */
+ * @brief Function executed on Radio Rx Error event
+ */
 static void OnRxError(void) {
 	LORA_APP_CRITICAL_SECTION_BEGIN();
 	// Ignore any events on task scheduling exhaustion
@@ -181,42 +249,6 @@ static void OnRxError(void) {
 	UTIL_SEQ_SetTask(
 		LORA_APP_TASK_BASE_ID << (cur_state_write_bufidx & STATE_BUFINDX_MASK),
 		CFG_SEQ_Prio_0);
-}
-
-/**
- * @brief Make the SubGHz module enter continuous RX mode
- */
-static void lora_recv() {
-	Radio.Standby();
-
-	// SubGHz RX Configuration
-	Radio.SetChannel(LORA_APP_FREQ);
-	Radio.SetRxConfig(MODEM_LORA, LORA_APP_BW, LORA_APP_SF, LORA_APP_CODINGRATE,
-		0, LORA_APP_PREAMBLE_LENGTH, 0,
-		RADIO_LORA_PACKET_FIXED_LENGTH, LORA_APP_PAYLOAD_LEN,
-		RADIO_LORA_CRC_ON, false, 0, RADIO_LORA_IQ_NORMAL, true);
-	Radio.SetMaxPayloadLength(MODEM_LORA, LORA_APP_PAYLOAD_LEN);
-
-	Radio.Rx(0xFFFFFF);
-}
-
-/**
- * @brief Command the SubGHz module to transmit the packet with index
- * bufidx inside the TX packets ring buffer.
- * @param bufidx index of the target packet in the TX packets ring buffer
- */
-static void lora_send(uint8_t bufidx) {
-	Radio.Standby();
-
-	// SubGHz TX Configuration
-	Radio.SetChannel(LORA_APP_FREQ);
-	Radio.SetTxConfig(MODEM_LORA, LORA_APP_TX_POWER, 0,
-		LORA_APP_BW, LORA_APP_SF, LORA_APP_CODINGRATE,
-		LORA_APP_PAYLOAD_LEN, RADIO_LORA_PACKET_FIXED_LENGTH, RADIO_LORA_CRC_ON,
-		false, 0, RADIO_LORA_IQ_NORMAL, LORA_APP_TX_TIMEOUT);
-	Radio.SetMaxPayloadLength(MODEM_LORA, LORA_APP_PAYLOAD_LEN);
-
-	Radio.Send((uint8_t*)&tx_pkts[bufidx], sizeof(packet_t));
 }
 
 /* ---- Debug LED timer callbacks ---- */
@@ -244,20 +276,18 @@ static void OnRxLedTimer(void* p) {
  * @brief Main Application Process
  */
 static void lora_app_process(void) {
-	packet_t pkt;
-
-	switch (states[state_read_bufidx]) {
+	switch (states[state_read_bufidx & STATE_BUFINDX_MASK]) {
 	case RX_DONE:
 		// Blink LED for debugging purposes
 		HAL_GPIO_WritePin(LORA_APP_RX_LED_GPIO_PORT, LORA_APP_RX_LED_GPIO_PIN, GPIO_PIN_SET);
 		UTIL_TIMER_Start(&rx_led_timer);
 
 		// Validate packet SOF
-		if (rx_pkts[rx_read_bufidx].sof == APP_SOF) {
-			// uart_app_send(&rx_pkts[rx_read_bufidx]);
+		if (rx_pkts[rx_read_bufidx & RX_BUFINDX_MASK].sof == APP_SOF) {
+			// uart_app_send(&rx_pkts[rx_read_bufidx & RX_BUFINDX_MASK]);
 		}
 
-		rx_read_bufidx = (rx_read_bufidx + 1) % LORA_APP_RX_MAX_COUNT;
+		rx_read_bufidx++;
 		break;
 
 	case RX_ERROR:
@@ -268,41 +298,62 @@ static void lora_app_process(void) {
 		HAL_GPIO_WritePin(LORA_APP_TX_LED_GPIO_PORT, LORA_APP_TX_LED_GPIO_PIN, GPIO_PIN_SET);
 		UTIL_TIMER_Start(&tx_led_timer);
 
-		// Free TX slot and go back into RX
-		tx_read_bufidx = (tx_read_bufidx + 1) % LORA_APP_TX_MAX_COUNT;
-		lora_recv();
+		// Process next scheduled TX if there are any. Otherwise, go into RX.
+		tx_read_bufidx++;
+		if (!tx_busy) {
+			/*
+			 * There is a race condition bug here that we will currently choose to
+			 * ignore. If the "TX FIFO empty" test passes, and call to lora_send()
+			 * occurs before lora_recv() is ran, the subsequent call to the latter
+			 * will halt the TX process before its completion/timeout. This breaks
+			 * our design requirement that RX shall never preempt TX.
+			 *
+			 * TODO:
+			 * As the conditions required for this bug to occur are hard to produce
+			 * and the fix is quite involved, we leave implementing it for later.
+			 */
+			if (tx_write_bufidx == tx_read_bufidx) {
+				lora_recv();
+			} else {
+				lora_send();
+			}
+		}
+
 		break;
 
 	case TX_TIMEOUT:
 		// Attempt to retransmit if allowed
-		if (tx_retries[tx_read_bufidx] < LORA_APP_TX_MAX_RETRIES) {
-			lora_send(tx_read_bufidx);
-			tx_retries[tx_read_bufidx]++;
+		if (tx_retries[tx_read_bufidx & TX_BUFINDX_MASK] <
+			LORA_APP_TX_MAX_RETRIES) {
+			if (!tx_busy) {
+				lora_send();
+				tx_retries[tx_read_bufidx & TX_BUFINDX_MASK]++;
+			}
 		} else {
-			// If not, free TX slot and go back into RX
-			tx_read_bufidx = (tx_read_bufidx + 1) % LORA_APP_TX_MAX_COUNT;
-			lora_recv();
+			// If not, process next scheduled TX, if any, or go back into RX.
+			tx_read_bufidx++;
+			if (!tx_busy) {
+				if (tx_write_bufidx == tx_read_bufidx) {
+					lora_recv();
+				} else {
+					lora_send();
+				}
+			}
 		}
 		break;
 
+	// Should never execute
 	case UNEXPECTED:
 	default:
 		lora_trap();
 		break;
 	}
 
-	state_read_bufidx = (state_read_bufidx + 1) % LORA_APP_TASK_MAX_COUNT;
+	state_read_bufidx++;
 }
 
 /* Public functions -----------------------------------------------------------*/
 void lora_app_init(void) {
-	char buf[256] = {0};
-	snprintf(buf, sizeof(buf),
-			"\n\rLoRa PHY Gateway\n\r"
-			"Application version: %u.%u\n\r",
-			APP_VERSION_MAJOR, APP_VERSION_MINOR);
-	HAL_UART_Transmit(&huart2, (uint8_t*)buf, sizeof(buf), HAL_MAX_DELAY);
-
 	// Initialize LED blinking timers
 	UTIL_TIMER_Create(&tx_led_timer, LORA_APP_LED_BLINK_DURATION, UTIL_TIMER_ONESHOT,
 					  OnTxLedTimer, NULL);
@@ -327,23 +378,28 @@ void lora_app_init(void) {
 	lora_recv();
 }
 
-AppStatus_t lora_app_send(packet_t* pkt) {
+AppStatus_t lora_schedule_send(packet_t* pkt) {
 	LORA_APP_CRITICAL_SECTION_BEGIN();
+	bool tx_was_empty = (tx_write_bufidx == tx_read_bufidx),
+		tx_was_busy = tx_busy;
+
 	// Ignore TX request if the buffer is exhausted
 	if (tx_write_bufidx - tx_read_bufidx == LORA_APP_TX_MAX_COUNT) {
 		LORA_APP_CRITICAL_SECTION_END();
-		return APP_STATUS_ERR_TX_EXHAUSTED;
+		return APP_STATUS_ERR_TX_BUFFER_FULL;
 	}
 
 	uint8_t cur_tx_write_bufidx = tx_write_bufidx;
 	tx_write_bufidx++;
-	LORA_APP_CRITICAL_SECTION_END();
 
 	// Reset retries counter and copy packet into internal TX ring buffer
 	tx_retries[cur_tx_write_bufidx & TX_BUFINDX_MASK] = 0;
 	memcpy(&tx_pkts[cur_tx_write_bufidx & TX_BUFINDX_MASK],
 		pkt, sizeof(packet_t));
+	LORA_APP_CRITICAL_SECTION_END();
 
-	lora_send(cur_tx_write_bufidx & TX_BUFINDX_MASK);
+	if (tx_was_empty && !tx_was_busy) {
+		lora_send();
+	}
 	return APP_STATUS_OK;
 }
