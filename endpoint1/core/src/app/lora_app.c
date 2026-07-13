@@ -205,19 +205,18 @@ static void lora_app_process(void) {
 		/*
 		 * Telemetry data format:
 		 * data[0]: telemetry type
-		 * data[1]: timestamp
-		 * data[2]: telemetry value
-		 * data[3]: unused; gateway will populate it with received SNR
+		 * data[1]: telemetry value
+		 * data[2-3]: unused; gateway will populate with received RSSI and SNR
 		 */
 		tx_pkt.data[0] = TELEMETRY_TYPE_BUTTON_PRESS_COUNT;
-		tx_pkt.data[1] = timestamp++;
-		tx_pkt.data[2] = btn_press_count;
+		tx_pkt.data[1] = btn_press_count;
+		tx_pkt.data[2] = 0;
 		tx_pkt.data[3] = 0;
 
 		APP_LOG(TS_ON, "Committing telemetry: src_addr(%u), dest_addr(%u), "
-		        "telemetry_type(%u), timestamp(%u), telemetry_value(%u).\n\r",
+		        "telemetry_type(%u), telemetry_value(%u).\n\r",
 		        tx_pkt.source_addr, tx_pkt.dest_addr,
-		        tx_pkt.data[0], tx_pkt.data[1], tx_pkt.data[2]);
+		        tx_pkt.data[0], tx_pkt.data[1]);
 
 		lora_send(&tx_pkt);
 		break;

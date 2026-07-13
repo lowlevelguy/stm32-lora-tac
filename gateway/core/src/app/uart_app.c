@@ -289,8 +289,7 @@ void uart_app_init() {
 
 	// Begin RX
 	HAL_StatusTypeDef s = HAL_UART_Receive_IT(&huart2,
-		(uint8_t*)&rx_pkts[0],
-		UART_APP_PAYLOAD_LEN);
+		(uint8_t*)&rx_pkts[0],UART_APP_PAYLOAD_LEN);
 	if (s != HAL_OK) {
 		uart_trap();
 	}

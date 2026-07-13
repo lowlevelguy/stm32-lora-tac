@@ -44,6 +44,8 @@ static volatile enum ApplicationState states[LORA_APP_TASK_MAX_COUNT];
 static volatile uint8_t state_write_bufidx = 0, state_read_bufidx = 0;
 
 static packet_t rx_pkts[LORA_APP_RX_MAX_COUNT];
+static int16_t rssis[LORA_APP_RX_MAX_COUNT];
+static int8_t snrs[LORA_APP_RX_MAX_COUNT];
 static volatile uint8_t rx_write_bufidx = 0, rx_read_bufidx = 0;
 
 static packet_t tx_pkts[LORA_APP_TX_MAX_COUNT];
@@ -189,6 +191,8 @@ static void OnRxDone(uint8_t* payload, uint16_t size, int16_t rssi, int8_t snr) 
 		}
 
 		memcpy(&rx_pkts[cur_rx_write_bufidx & RX_BUFINDX_MASK], payload, size);
+		rssis[cur_rx_write_bufidx & RX_BUFINDX_MASK] = rssi;
+		snrs[cur_rx_write_bufidx & RX_BUFINDX_MASK] = snr;
 		states[cur_state_write_bufidx & STATE_BUFINDX_MASK] = RX_DONE;
 	} else {
 		rx_error[cur_state_write_bufidx & STATE_BUFINDX_MASK] = RX_ERROR_SIZE_MISMATCH;
@@ -276,9 +280,14 @@ static void lora_app_process(void) {
 		UTIL_TIMER_Start(&led_timer);
 
 		// If the SOF is valid, forward to UART
-		if (rx_pkts[rx_read_bufidx & RX_BUFINDX_MASK].sof == APP_SOF) {
+		packet_t* pkt = &rx_pkts[rx_read_bufidx & RX_BUFINDX_MASK];
+		if (pkt->sof == APP_SOF) {
+			// Populate data[2-3] with received RSSI and SNR
+			pkt->data[2] = rssis[rx_read_bufidx & RX_BUFINDX_MASK];
+			pkt->data[3] = snrs[rx_read_bufidx & RX_BUFINDX_MASK];
+
 			AppStatus_t s =
-				uart_schedule_send(&rx_pkts[rx_read_bufidx & RX_BUFINDX_MASK]);
+				uart_schedule_send(pkt);
 
 			// If the TX wasn't able to be scheduled, we do nothing for now.
 			switch (s) {
