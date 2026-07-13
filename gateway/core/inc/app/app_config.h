@@ -36,15 +36,14 @@
 
 /* ---- Debug LEDs ---- */
 #define LORA_APP_LED_BLINK_DURATION		100
-#define LORA_APP_TX_LED_GPIO_PORT		GPIOB
-#define LORA_APP_TX_LED_GPIO_PIN		GPIO_PIN_9
-#define LORA_APP_RX_LED_GPIO_PORT		GPIOB
-#define LORA_APP_RX_LED_GPIO_PIN		GPIO_PIN_11
+#define LORA_APP_LED_GPIO_PORT			GPIOB
+#define LORA_APP_LED_GPIO_PIN			GPIO_PIN_9
 
 
 /* UART Application Configuration --------------------------------------------*/
 /* ---- Application configuration ---- */
 #define UART_APP_MY_ADDR				APP_MY_ADDR
+#define UART_APP_PAYLOAD_LEN			sizeof(packet_t)
 
 #define UART_APP_TASK_BASE_ID			(1 << 16)
 #define UART_APP_TASK_MAX_COUNT			16
@@ -53,6 +52,11 @@
 #define UART_APP_TX_MAX_COUNT			4
 #define UART_APP_TX_TIMEOUT				500
 #define UART_APP_TX_MAX_RETRIES			3
+
+/* ---- Debug LEDs ---- */
+#define UART_APP_LED_BLINK_DURATION		100
+#define UART_APP_LED_GPIO_PORT		GPIOB
+#define UART_APP_LED_GPIO_PIN		GPIO_PIN_11
 
 
 /* MAC Layer Definition ------------------------------------------------------*/
@@ -69,7 +73,6 @@ typedef struct {
 typedef enum {
 	APP_STATUS_OK,
 	APP_STATUS_ERR_TX_BUFFER_FULL,
-	APP_STATUS_ERR_TX_FAILED
 } AppStatus_t ;
 
 

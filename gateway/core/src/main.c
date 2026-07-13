@@ -23,9 +23,10 @@
 #include "usart.h"
 #include "sys_app.h"
 
-#include "app/lora_app.h"
-
 #include "stm32_seq.h"
+
+#include "app/lora_app.h"
+#include "app/uart_app.h"
 
 /* Private includes ----------------------------------------------------------*/
 /* USER CODE BEGIN Includes */
@@ -100,8 +101,9 @@ int main(void) {
 	/* Initialize Utilities */
 	SystemApp_Init();
 
-	// Initialize LoRa application
+	// Initialize application
 	lora_app_init();
+	uart_app_init();
 
 	/* Infinite loop */
 	/* USER CODE BEGIN WHILE */

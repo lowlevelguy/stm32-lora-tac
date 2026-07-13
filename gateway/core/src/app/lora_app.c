@@ -8,6 +8,7 @@
 #include "stm32_seq.h"
 #include "stm32_timer.h"
 #include "usart.h"
+#include "app/uart_app.h"
 
 
 #define LORA_APP_CRITICAL_SECTION_BEGIN() \
@@ -52,7 +53,7 @@ static volatile bool tx_busy = false;
 
 static volatile enum RxErrorType rx_error[LORA_APP_TASK_MAX_COUNT];
 
-static UTIL_TIMER_Object_t tx_led_timer, rx_led_timer;
+static UTIL_TIMER_Object_t led_timer;
 
 /* Private functions ---------------------------------------------------------*/
 /**
@@ -119,9 +120,10 @@ static void lora_send() {
  * @brief Function to be executed on Radio Tx Done event
  */
 static void OnTxDone(void) {
+	LORA_APP_CRITICAL_SECTION_BEGIN();
+	// Free TX resource
 	tx_busy = false;
 
-	LORA_APP_CRITICAL_SECTION_BEGIN();
 	// Ignore any events on task scheduling exhaustion
 	if (state_write_bufidx - state_read_bufidx == LORA_APP_TASK_MAX_COUNT) {
 		LORA_APP_CRITICAL_SECTION_END();
@@ -202,9 +204,10 @@ static void OnRxDone(uint8_t* payload, uint16_t size, int16_t rssi, int8_t snr) 
  * @brief Function executed on Radio Tx Timeout event
  */
 static void OnTxTimeout(void) {
+	LORA_APP_CRITICAL_SECTION_BEGIN();
+	// Free TX resource
 	tx_busy = false;
 
-	LORA_APP_CRITICAL_SECTION_BEGIN();
 	// Ignore any events on task scheduling exhaustion
 	if (state_write_bufidx - state_read_bufidx == LORA_APP_TASK_MAX_COUNT) {
 		LORA_APP_CRITICAL_SECTION_END();
@@ -251,40 +254,43 @@ static void OnRxError(void) {
 		CFG_SEQ_Prio_0);
 }
 
-/* ---- Debug LED timer callbacks ---- */
 /**
- * @brief Function executed on led1_timer expiry
+ * @brief Function executed on led_timer expiry
  * @param p unused pointer parameter
  */
-static void OnTxLedTimer(void* p) {
+static void OnLedTimer(void* p) {
 	UNUSED(p);
-	HAL_GPIO_WritePin(LORA_APP_TX_LED_GPIO_PORT, LORA_APP_TX_LED_GPIO_PIN,
+	HAL_GPIO_WritePin(LORA_APP_LED_GPIO_PORT, LORA_APP_LED_GPIO_PIN,
 					  GPIO_PIN_RESET);
 }
 
 /**
- * @brief Function executed on led2_timer expiry
- * @param p unused pointer parameter
- */
-static void OnRxLedTimer(void* p) {
-	UNUSED(p);
-	HAL_GPIO_WritePin(LORA_APP_RX_LED_GPIO_PORT, LORA_APP_RX_LED_GPIO_PIN,
-	GPIO_PIN_RESET);
-}
-
-/**
- * @brief Main Application Process
+ * @brief Main LoRa Application Process
  */
 static void lora_app_process(void) {
 	switch (states[state_read_bufidx & STATE_BUFINDX_MASK]) {
 	case RX_DONE:
-		// Blink LED for debugging purposes
-		HAL_GPIO_WritePin(LORA_APP_RX_LED_GPIO_PORT, LORA_APP_RX_LED_GPIO_PIN, GPIO_PIN_SET);
-		UTIL_TIMER_Start(&rx_led_timer);
+		// Blink debug LED
+		HAL_GPIO_WritePin(LORA_APP_LED_GPIO_PORT, LORA_APP_LED_GPIO_PIN,
+			GPIO_PIN_SET);
+		UTIL_TIMER_Start(&led_timer);
 
-		// Validate packet SOF
+		// If the SOF is valid, forward to UART
 		if (rx_pkts[rx_read_bufidx & RX_BUFINDX_MASK].sof == APP_SOF) {
-			// uart_app_send(&rx_pkts[rx_read_bufidx & RX_BUFINDX_MASK]);
+			AppStatus_t s =
+				uart_schedule_send(&rx_pkts[rx_read_bufidx & RX_BUFINDX_MASK]);
+
+			// If the TX wasn't able to be scheduled, we do nothing for now.
+			switch (s) {
+			// TX scheduled
+			case APP_STATUS_OK:
+				break;
+
+			// Could not schedule TX
+			case APP_STATUS_ERR_TX_BUFFER_FULL:
+			default:
+				break;
+			}
 		}
 
 		rx_read_bufidx++;
@@ -294,9 +300,10 @@ static void lora_app_process(void) {
 		break;
 
 	case TX_DONE:
-		// Blink LED for debugging purposes
-		HAL_GPIO_WritePin(LORA_APP_TX_LED_GPIO_PORT, LORA_APP_TX_LED_GPIO_PIN, GPIO_PIN_SET);
-		UTIL_TIMER_Start(&tx_led_timer);
+		// Blink debug LED
+		HAL_GPIO_WritePin(LORA_APP_LED_GPIO_PORT, LORA_APP_LED_GPIO_PIN,
+			GPIO_PIN_SET);
+		UTIL_TIMER_Start(&led_timer);
 
 		// Process next scheduled TX if there are any. Otherwise, go into RX.
 		tx_read_bufidx++;
@@ -355,10 +362,8 @@ static void lora_app_process(void) {
 /* Public functions -----------------------------------------------------------*/
 void lora_app_init(void) {
 	// Initialize LED blinking timers
-	UTIL_TIMER_Create(&tx_led_timer, LORA_APP_LED_BLINK_DURATION, UTIL_TIMER_ONESHOT,
-					  OnTxLedTimer, NULL);
-	UTIL_TIMER_Create(&rx_led_timer, LORA_APP_LED_BLINK_DURATION, UTIL_TIMER_ONESHOT,
-					  OnRxLedTimer, NULL);
+	UTIL_TIMER_Create(&led_timer, LORA_APP_LED_BLINK_DURATION,
+		UTIL_TIMER_ONESHOT, OnLedTimer, NULL);
 
 	// Radio initialization
 	RadioEvents.TxDone = OnTxDone;
