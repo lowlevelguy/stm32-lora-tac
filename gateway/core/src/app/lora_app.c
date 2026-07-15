@@ -283,13 +283,14 @@ static void lora_app_process(void) {
 		packet_t* pkt = &rx_pkts[rx_read_bufidx & RX_BUFINDX_MASK];
 		if (pkt->sof == APP_SOF) {
 			// Populate data[2-3] with received RSSI and SNR
-			pkt->data[2] = rssis[rx_read_bufidx & RX_BUFINDX_MASK];
-			pkt->data[3] = snrs[rx_read_bufidx & RX_BUFINDX_MASK];
+			// The RSSI is sent with a bias of +200 to fit inside 1 byte
+			pkt->data[2] = (uint8_t)(rssis[rx_read_bufidx & RX_BUFINDX_MASK] + 200);
+			pkt->data[3] = (uint8_t)snrs[rx_read_bufidx & RX_BUFINDX_MASK];
 
-			AppStatus_t s =
-				uart_schedule_send(pkt);
+			AppStatus_t s = uart_schedule_send(pkt);
 
-			// If the TX wasn't able to be scheduled, we do nothing for now.
+			// If the TX failed to be scheduled, error handle...
+			// This is left empty for now
 			switch (s) {
 			// TX scheduled
 			case APP_STATUS_OK:
