@@ -1,15 +1,22 @@
 #!/usr/bin/env python3
-"""UART ↔ MQTT Bridge — STM32WL LoRa Gateway companion application.
+"""UART <-> MQTT Bridge - STM32WL LoRa Gateway companion application.
 
 Wires three concerns together:
-    1. UARTParser   — reads 8-byte frames from the STM32WL gateway VCP.
-    2. topic_map    — translates each frame to MQTT (topic, payload) tuples.
-    3. MQTTGateway  — publishes those tuples to the broker.
+    1. UARTParser   - reads 8-byte frames from the STM32WL gateway VCP
+                      and writes 8-byte downlink frames to it.
+    2. topic_map    - translates frames to MQTT (topic, payload) tuples
+                      (uplink) and MQTT messages to UART frames (downlink).
+    3. MQTTGateway  - publishes uplink tuples to the broker and dispatches
+                      subscribed downlink messages to the UART.
 
-Uplink-only for now (SRS-PY-02). Downlink actuator dispatch
-(SRS-PY-03, SRS-PY-04) and ACK handling (SRS-ED-05) will be added in
-future iterations; the module seams in mqtt_client.py and topic_map.py
-already expose subscribe() and a downlink-frame builder placeholder.
+Uplink (SRS-PY-02):
+    UART telemetry frames -> enddev{N}/sensor, /rssi, /snr topics.
+    UART ACK frames       -> enddev{N}/ack topic.  (SRS-ED-05)
+
+Downlink (SRS-PY-03, SRS-PY-04):
+    Subscribes to enddev+/actuator.  On message, builds an 8-byte Command
+    UART frame and writes it to the serial port; the gateway firmware
+    forwards it over LoRa to the addressed EndDevice.
 
 Logging format per SRS-PY-05:
     [HH:MM:SS.mmm] DIR SRC->DST TID=0xNN DATA=HH HH HH HH topic
@@ -24,7 +31,13 @@ from datetime import datetime
 from config import LOG_DATEFMT, LOG_FORMAT, MQTT_BROKER_HOST, MQTT_BROKER_PORT
 from lora_frame import LoraFrame
 from mqtt_client import MQTTGateway
-from topic_map import uplink_publications
+from topic_map import (
+    DOWNLINK_TOPIC_WILDCARD,
+    build_downlink_frame,
+    parse_downlink_payload,
+    parse_downlink_topic,
+    uplink_publications,
+)
 from uart_parser import UARTParser
 
 # --------------------------------------------------------------------- logging
@@ -50,7 +63,7 @@ def _log_frame(direction: str, frame: LoraFrame, topic_summary: str) -> None:
     )
 
 
-# --------------------------------------------------------- frame dispatcher
+# ----------------------------------------------------- uplink (UART -> MQTT)
 
 def _make_on_frame(mqtt: MQTTGateway):
     """Build the callback invoked by UARTParser.on each complete frame."""
@@ -80,6 +93,50 @@ def _make_on_frame(mqtt: MQTTGateway):
     return on_frame
 
 
+# --------------------------------------------------- downlink (MQTT -> UART)
+
+def _make_on_actuator(uart: UARTParser):
+    """Build the MQTT callback for enddev+/actuator messages (SRS-PY-03)."""
+
+    def on_actuator(topic: str, payload: bytes) -> None:
+        dest_addr = parse_downlink_topic(topic)
+        if dest_addr is None:
+            logger.warning("downlink: topic %r does not match enddev{N}/actuator",
+                           topic)
+            return
+
+        parsed = parse_downlink_payload(payload)
+        if parsed is None:
+            logger.warning("downlink: malformed payload %r on %s",
+                           payload.hex(" "), topic)
+            return
+        actuator_id, cmd = parsed
+
+        raw = build_downlink_frame(
+            dest_addr=dest_addr, actuator_id=actuator_id, cmd=cmd,
+        )
+        # Log the outgoing frame using the same SRS-PY-05 format.
+        # We reconstruct a LoraFrame from the raw bytes purely for logging.
+        logged = LoraFrame.decode(raw)
+        if logged is not None:
+            _log_frame("DOWN", logged, topic)
+
+        ok = uart.send_frame(raw)
+        if ok:
+            logger.debug(
+                "downlink: queued %d bytes to UART for enddev%d actuator=%d cmd=%d",
+                len(raw), dest_addr, actuator_id, cmd,
+            )
+        else:
+            logger.warning(
+                "downlink: UART write failed; command dropped (enddev%d "
+                "actuator=%d cmd=%d)",
+                dest_addr, actuator_id, cmd,
+            )
+
+    return on_actuator
+
+
 # --------------------------------------------------------------------- shutdown
 
 _shutdown = threading.Event()
@@ -103,15 +160,21 @@ def main() -> int:
     uart = UARTParser(frame_callback=_make_on_frame(mqtt))
     uart.start()
 
-    logger.info("bridge running — UART -> MQTT uplink active")
+    # Subscribe to actuator commands and route them to the UART.
+    mqtt.subscribe(DOWNLINK_TOPIC_WILDCARD, _make_on_actuator(uart))
+
+    logger.info("bridge running - uplink + downlink active")
 
     # Block on the shutdown event; periodic status ticks every few seconds
     # so the process visibly reports liveness in long-running deployments.
     while not _shutdown.wait(timeout=5.0):
         logger.debug(
-            "stats: frames=%d invalid=%d published=%d dropped=%d",
+            "stats: rx_frames=%d invalid=%d tx_frames=%d tx_errors=%d "
+            "published=%d dropped=%d",
             uart.frames_received,
             uart.invalid_frames,
+            uart.frames_sent,
+            uart.send_errors,
             mqtt.messages_published,
             mqtt.messages_dropped,
         )
@@ -120,9 +183,12 @@ def main() -> int:
     uart.stop()
     mqtt.stop()
     logger.info(
-        "stopped. final: frames=%d invalid=%d published=%d dropped=%d",
+        "stopped. final: rx_frames=%d invalid=%d tx_frames=%d tx_errors=%d "
+        "published=%d dropped=%d",
         uart.frames_received,
         uart.invalid_frames,
+        uart.frames_sent,
+        uart.send_errors,
         mqtt.messages_published,
         mqtt.messages_dropped,
     )

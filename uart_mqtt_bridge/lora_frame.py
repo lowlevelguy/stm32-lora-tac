@@ -18,9 +18,6 @@ Telemetry (TypeID=0x01) — per MQTT Topic Map sheet (latest revision):
     Data[2]   RSSI          (gateway-injected, SRS-GW-05: RSSI_dBm + 200)
     Data[3]   SNR           (gateway-injected, int8 signed)
 
-This definition removes the earlier ambiguity between sensor-value LSBs and
-RSSI/SNR: they are independent bytes, not overlapping.
-
 Command (TypeID=0x02):
     Data[0]   ActuatorID
     Data[1]   Cmd (0x00 = OFF, 0x01 = ON)
@@ -95,6 +92,35 @@ class LoraFrame:
             _FMT, _SOF, self.source_addr, self.dest_addr, self.type_id, *self.data
         )
 
+    # ---------------------------------------------------- factory methods
+
+    @classmethod
+    def command_frame(
+        cls, source_addr: int, dest_addr: int, actuator_id: int, cmd: int
+    ) -> "LoraFrame":
+        """Build a Command frame (TypeID=0x02) for downlink (SRS-PY-04).
+
+        Data layout: ActuatorID | Cmd | 0x00 | 0x00.
+        """
+        return cls(
+            source_addr=0x00,
+            dest_addr=dest_addr,
+            type_id=FrameType.COMMAND,
+            data=bytes((actuator_id & 0xFF, cmd & 0xFF, 0x00, 0x00)),
+        )
+
+    @classmethod
+    def ack_frame(
+        cls, source_addr: int, dest_addr: int, actuator_id: int, status: int
+    ) -> "LoraFrame":
+        """Build an ACK frame (TypeID=0x03) for reference/testing."""
+        return cls(
+            source_addr=source_addr,
+            dest_addr=dest_addr,
+            type_id=FrameType.ACK,
+            data=bytes((actuator_id & 0xFF, status & 0xFF, 0x00, 0x00)),
+        )
+
     # ------------------------------------------- telemetry typed views
 
     @property
@@ -148,8 +174,44 @@ class LoraFrame:
             return None
         return raw - 256 if raw >= 128 else raw
 
-    # Future: command and ack typed properties will be added when
-    # downlink and ACK handling are implemented.
+    # -------------------------------------------- command typed views
+
+    @property
+    def command_actuator_id(self) -> int | None:
+        """Command Data[0] — ActuatorID."""
+        if self.type_id != FrameType.COMMAND:
+            return None
+        return self.data[0]
+
+    @property
+    def command_cmd(self) -> int | None:
+        """Command Data[1] — Cmd byte (0x00=OFF, 0x01=ON)."""
+        if self.type_id != FrameType.COMMAND:
+            return None
+        return self.data[1]
+
+    # -------------------------------------------- ack typed views
+
+    @property
+    def ack_actuator_id(self) -> int | None:
+        """ACK Data[0] — ActuatorID."""
+        if self.type_id != FrameType.ACK:
+            return None
+        return self.data[0]
+
+    @property
+    def ack_status(self) -> int | None:
+        """ACK Data[1] — Status byte (0x00=OK, 0x01=ERR)."""
+        if self.type_id != FrameType.ACK:
+            return None
+        return self.data[1]
+
+    @property
+    def ack_payload(self) -> bytes | None:
+        """2-byte MQTT payload: ActuatorID || Status (Data[0..1])."""
+        if self.type_id != FrameType.ACK:
+            return None
+        return bytes((self.data[0], self.data[1]))
 
     # ----------------------------------------------------- debug
 

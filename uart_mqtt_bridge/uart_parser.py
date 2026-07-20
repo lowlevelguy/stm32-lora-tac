@@ -56,6 +56,8 @@ class UARTParser:
         self.frames_received: int = 0
         self.invalid_frames: int = 0
         self.reconnect_count: int = 0
+        self.frames_sent: int = 0
+        self.send_errors: int = 0
 
     # ------------------------------------------------------------------ public
 
@@ -74,6 +76,42 @@ class UARTParser:
             self._thread.join(timeout=2.0)
             self._thread = None
         self._close_port()
+
+    def send_frame(self, raw: bytes) -> bool:
+        """Write a raw 8-byte frame to the serial port (downlink, SRS-PY-03).
+
+        Thread-safe: the reader thread may be active concurrently. pyserial's
+        Serial.write() takes a per-call lock internally, so we don't need an
+        additional lock here; we only need to ensure the port reference is
+        stable. Returns True on success, False if the port is closed or the
+        write raised.
+        """
+        if len(raw) != FRAME_LENGTH:
+            logger.warning("send_frame: ignoring %d-byte frame (expected %d)",
+                           len(raw), FRAME_LENGTH)
+            return False
+        with self._lock:
+            port = self._port
+        if port is None or not port.is_open:
+            logger.warning("send_frame: port not open; frame dropped")
+            self.send_errors += 1
+            return False
+        try:
+            port.write(raw)
+            self.frames_sent += 1
+            return True
+        except serial.SerialException as exc:
+            logger.warning("send_frame: write failed: %s", exc)
+            self.send_errors += 1
+            # Mark port for reconnection by the reader loop.
+            with self._lock:
+                if self._port is port:
+                    try:
+                        port.close()
+                    except serial.SerialException:
+                        pass
+                    self._port = None
+            return False
 
     # ----------------------------------------------------- port discovery
 
