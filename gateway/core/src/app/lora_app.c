@@ -111,11 +111,11 @@ static void lora_send() {
 	Radio.SetChannel(LORA_APP_FREQ);
 	Radio.SetTxConfig(MODEM_LORA, LORA_APP_TX_POWER, 0,
 		LORA_APP_BW, LORA_APP_SF, LORA_APP_CODINGRATE,
-		LORA_APP_PAYLOAD_LEN, RADIO_LORA_PACKET_FIXED_LENGTH, RADIO_LORA_CRC_ON,
+		LORA_APP_PREAMBLE_LENGTH, RADIO_LORA_PACKET_FIXED_LENGTH, RADIO_LORA_CRC_ON,
 		false, 0, RADIO_LORA_IQ_NORMAL, LORA_APP_TX_TIMEOUT);
 	Radio.SetMaxPayloadLength(MODEM_LORA, LORA_APP_PAYLOAD_LEN);
 
-	Radio.Send((uint8_t*)&tx_pkts[cur_tx_read_bufidx], sizeof(packet_t));
+	Radio.Send((uint8_t*)&tx_pkts[cur_tx_read_bufidx & TX_BUFINDX_MASK], sizeof(packet_t));
 }
 
 /**
@@ -282,11 +282,13 @@ static void lora_app_process(void) {
 		// If the SOF is valid, forward to UART
 		packet_t* pkt = &rx_pkts[rx_read_bufidx & RX_BUFINDX_MASK];
 		if (pkt->sof == APP_SOF) {
+			/* ---- SRS-GW-05 (w/ optional injection for data_type != 1) ---- */
 			// Populate data[2-3] with received RSSI and SNR
 			// The RSSI is sent with a bias of +200 to fit inside 1 byte
 			pkt->data[2] = (uint8_t)(rssis[rx_read_bufidx & RX_BUFINDX_MASK] + 200);
 			pkt->data[3] = (uint8_t)snrs[rx_read_bufidx & RX_BUFINDX_MASK];
 
+			/* ---- SRS-GW-01, SRS-GW-02 ---- */
 			AppStatus_t s = uart_schedule_send(pkt);
 
 			// If the TX failed to be scheduled, error handle...

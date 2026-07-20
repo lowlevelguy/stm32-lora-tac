@@ -13,13 +13,16 @@ extern "C" {
 #define LORA_APP_VERSION_MAJOR			1
 #define LORA_APP_VERSION_MINOR			0
 
-/* ---- SubGHz configuration ---- */
+/* ---- SubGHz configuration (SRS-ED-06) ---- */
+// Only the low-band Nucleo variant is available
 #define LORA_APP_FREQ					433000000 /* Hz */
 #define LORA_APP_TX_POWER				14        /* dBm */
+// Symbol time about 1ms, packet time about 24ms
 #define LORA_APP_BW						0         /* [0: 125 kHz, 1: 250 kHz, 2: 500 kHz, 3: Reserved] */
 #define LORA_APP_SF						7         /* [SF7..SF12] */
 #define LORA_APP_CODINGRATE				1         /* [1: 4/5, 2: 4/6, 3: 4/7, 4: 4/8] */
 #define LORA_APP_PREAMBLE_LENGTH		8         /* Same for Tx and Rx */
+// Fixed-length payload mode
 #define LORA_APP_PAYLOAD_LEN			sizeof(packet_t)
 
 /* ---- Application configuration ---- */
@@ -76,6 +79,11 @@ typedef struct {
 
 enum TelemetryType {
 	TELEMETRY_TYPE_BUTTON_PRESS_COUNT
+};
+
+enum AckStatus {
+	ACK_STATUS_OK,
+	ACK_STATUS_ERROR
 };
 
 /* API functions --------------------------------------------------------------*/

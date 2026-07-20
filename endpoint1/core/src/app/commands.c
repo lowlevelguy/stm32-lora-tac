@@ -18,6 +18,7 @@ enum LedRedCommand {
 static uint8_t led_red_command(void* p) {
 	uint8_t* params = p;
 
+	/* ---- SRS-ED-04 ---- */
 	/*
 	 * The red LED actuator supports two commands: "turn off", and "turn on".
 	 * For the "turn off" command to take place, params[0] has to equal 0.

@@ -194,10 +194,12 @@ static void lora_app_process(void) {
 
 	switch (state) {
 	case TX:
+		/* ---- SRS-ED-01 ---- */
 		// Make TX LED blink for debugging purposes
 		HAL_GPIO_WritePin(LORA_APP_TX_LED_GPIO_PORT, LORA_APP_TX_LED_GPIO_PIN, GPIO_PIN_SET);
 		UTIL_TIMER_Start(&tx_led_timer);
 
+		/* ---- SRS-ED-02 ---- */
 		tx_pkt.source_addr = LORA_APP_MY_ADDR;
 		tx_pkt.dest_addr = LORA_APP_GATEWAY_ADDR;
 		tx_pkt.data_type = PACKET_DATA_TYPE_TELEMETRY;
@@ -225,6 +227,8 @@ static void lora_app_process(void) {
 		// Listen for any commands
 		APP_LOG(TS_ON, "Listening for any commands for 2 seconds...\n\r");
 		rx_start_time = HAL_GetTick();
+
+		/* ---- SRS-ED-03 ---- */
 		lora_recv(LORA_APP_RX_TIMEOUT);
 		break;
 
@@ -255,9 +259,10 @@ static void lora_app_process(void) {
 			int i = 0;
 			for (i = 0; i < ACTUATOR_ID_COUNT; i++) {
 				if (rx_pkt.data[0] == actuators[i].actuator_id) {
+					/* ---- SRS-ED-04 ---- */
 					uint8_t err_code = actuators[i].command(&rx_pkt.data[1]);
 
-					// If command was valid; transmit ACK
+					// If command was valid; transmit ACK with OK status
 					if (err_code != COMMAND_STATUS_UNKNOWN) {
 						if (err_code == COMMAND_STATUS_OK) {
 							APP_LOG(TS_ON, "Actuator command "
@@ -268,6 +273,7 @@ static void lora_app_process(void) {
 							APP_LOG(TS_ON, "Error occured on command execution.\n\r");
 						}
 
+						// Build ACK packet
 						tx_pkt.source_addr = LORA_APP_MY_ADDR;
 						tx_pkt.dest_addr = LORA_APP_GATEWAY_ADDR;
 						tx_pkt.data_type = PACKET_DATA_TYPE_ACK;
@@ -275,15 +281,18 @@ static void lora_app_process(void) {
 						/*
 						 * ACK data format:
 						 * data[0]: actuator ID
-						 * data[1]: 0x00 = OK
+						 * data[1]: ACK status, 0 if valid actuator ID, 1 if not
 						 * data[2-3]: unused
 						 */
 						tx_pkt.data[0] = rx_pkt.data[0];
-						tx_pkt.data[1] = 0;
+						tx_pkt.data[1] = ACK_STATUS_OK;
 						tx_pkt.data[2] = 0;
 						tx_pkt.data[3] = 0;
 
+						/* ---- SRS-ED-05 ---- */
+						APP_LOG(TS_ON, "data type: %u\n\r", tx_pkt.data_type);
 						lora_send(&tx_pkt);
+						break;
 
 					} else {
 						// Invalid command; go back into RX
@@ -292,6 +301,7 @@ static void lora_app_process(void) {
 							rx_pkt.data[0], rx_pkt.data[1], rx_pkt.data[2],
 							rx_pkt.data[3]);
 
+						/* ---- SRS-ED-03 ---- */
 						elapsed_time = HAL_GetTick() - rx_start_time;
 						if (elapsed_time < LORA_APP_RX_TIMEOUT) {
 							APP_LOG(TS_ON, "Re-entering RX mode...\n\r");
@@ -303,10 +313,11 @@ static void lora_app_process(void) {
 				}
 			}
 
-			// Unknown actuator; go back into RX mode again
+			// Unknown actuator; transmit ACK with error status
 			if (i == ACTUATOR_ID_COUNT) {
 				APP_LOG(TS_ON, "Unknown actuator (id=%u).\n\r", rx_pkt.data[0]);
 
+				/* ---- SRS-ED-03 ---- */
 				elapsed_time = HAL_GetTick() - rx_start_time;
 				if (elapsed_time < LORA_APP_RX_TIMEOUT) {
 					APP_LOG(TS_ON, "Re-entering RX mode...\n\r");
@@ -317,6 +328,11 @@ static void lora_app_process(void) {
 			}
 
 		} else {
+			APP_LOG(TS_ON, "Invalid packet: sof (0x%02x), src_addr (%u), "
+				  "dest_addr (%u), data_type (%u)\n\r",
+				  rx_pkt.sof, rx_pkt.source_addr, rx_pkt.dest_addr,
+				  rx_pkt.data_type);
+
 			elapsed_time = HAL_GetTick() - rx_start_time;
 			if (elapsed_time < LORA_APP_RX_TIMEOUT) {
 				APP_LOG(TS_ON, "Re-entering RX mode...\n\r");
@@ -353,6 +369,7 @@ static void lora_app_process(void) {
 		break;
 
 	case ACK_DONE:
+		APP_LOG(TS_ON, "Ack done\n\r");
 	case ACK_TIMEOUT:
 		break;
 	case UNEXPECTED:
