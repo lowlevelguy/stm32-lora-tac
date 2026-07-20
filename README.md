@@ -4,14 +4,25 @@
 ![Application Architecture](assets/architecture.svg)
 
 ## Design
-### Component State Diagrams
-#### Endpoint
+### Endpoint
 ![Endpoint Component State Diagram](assets/endpoint_state_diag.svg)
 
-#### Gateway
+Protocol stack:
+- PHY: LoRa
+- MAC: custom
+- Application Layer: custom, "telemetry" and "command"
+
+### Gateway
 ![Gateway Component State Diagram](assets/gateway_state_diag.svg)
 
-### Protocols
-PHY Layer: LoRa/UART
-MAC Layer: Custom MAC
-Application Layer: Custom Telemetry/Command Protocols
+Protocol stack:
+- PHY: LoRa (uplink RX/downlink TX), UART (uplink TX/downlink RX)
+- MAC: custom
+- Application Layer: custom, "telemetry" and "command"
+
+### Python Bridge
+Protocol stack:
+- Uplink RX: UART PHY/custom MAC/custom pplication layer
+- Uplink TX: MQTT/custom payload formats
+- Downlink RX: MQTT/custom payload formats
+- Downlink TX: UART PHY/custom MAC/custom pplication layer
