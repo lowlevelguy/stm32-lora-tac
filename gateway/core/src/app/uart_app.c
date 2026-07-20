@@ -37,6 +37,7 @@ static volatile uint8_t state_write_bufidx = 0, state_read_bufidx = 0;
 
 static packet_t rx_pkts[UART_APP_RX_MAX_COUNT];
 static volatile uint8_t rx_write_bufidx = 0, rx_read_bufidx = 0;
+static uint32_t invalid_sof_counter = 0;
 
 static packet_t tx_pkts[UART_APP_TX_MAX_COUNT];
 static uint8_t tx_retries[UART_APP_TX_MAX_COUNT];
@@ -243,9 +244,14 @@ static void uart_app_process(void) {
 		}
 		UTIL_TIMER_Start(&led_timer);
 
-		// If the SOF is valid, forward to LoRa
+		/* ---- SRS-GW-04 ---- */
 		if (rx_pkts[rx_read_bufidx & RX_BUFINDX_MASK].sof == APP_SOF) {
+			// If the SOF is valid, forward to LoRa
+			/* ---- SRS-GW-03 ---- */
 			lora_schedule_send(&rx_pkts[rx_read_bufidx & RX_BUFINDX_MASK]);
+		} else {
+			// If invalid, increment counter
+			invalid_sof_counter++;
 		}
 
 		rx_read_bufidx++;
