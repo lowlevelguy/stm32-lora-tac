@@ -1,0 +1,6 @@
+:cmock:
+    :mock_prefix: mock_
+    :mock_path: "./"
+    :plugins:
+        - :expect
+        - :ignore
