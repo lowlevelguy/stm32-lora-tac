@@ -2,12 +2,6 @@
 
 #include "main.h"
 
-/* Private types -------------------------------------------------------------*/
-enum LedRedCommand {
-	LED_RED_COMMAND_TURN_OFF,
-	LED_RED_COMMAND_TURN_ON,
-};
-
 /* Private functions ---------------------------------------------------------*/
 /**
  * @brief Red LED commanding function

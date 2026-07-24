@@ -20,6 +20,11 @@ enum CommandStatus {
 	COMMAND_STATUS_UNKNOWN
 };
 
+enum LedRedCommand {
+	LED_RED_COMMAND_TURN_OFF,
+	LED_RED_COMMAND_TURN_ON,
+};
+
 typedef struct {
 	uint8_t actuator_id;
 	uint8_t (*command)(void*);
