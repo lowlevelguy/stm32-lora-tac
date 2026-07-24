@@ -1,6 +1,7 @@
 .idea/
 */.idea/
 cmake-build-debug-arm/
+cmake-build-debug-testing/
 build/
 */build/
 skills/

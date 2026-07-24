@@ -99,11 +99,11 @@ endfunction()
 add_cmock_test(
     NAME test_commands
     SOURCES
-        ${CMAKE_CURRENT_SOURCE_DIR}/test_commands.c                          # The test file
-        ${CMAKE_SOURCE_DIR}/endpoint1/core/src/app/commands.c                # The unit under test
+        ${CMAKE_CURRENT_SOURCE_DIR}/endpoint1/test_commands.c             # The test file
+        ${CMAKE_SOURCE_DIR}/endpoint1/core/src/app/commands.c             # The unit under test
     MOCKS
-        ${CMAKE_CURRENT_SOURCE_DIR}/dummy_headers/stm32_hal_gpio.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/endpoint1/dummy_headers/stm32_hal_gpio.h
     INCLUDES
-        ${CMAKE_CURRENT_SOURCE_DIR}/dummy_headers                            # For main.h stub
-        ${CMAKE_SOURCE_DIR}/endpoint1/core/inc                               # For app/commands.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/endpoint1/dummy_headers                # For main.h stub
+        ${CMAKE_SOURCE_DIR}/endpoint1/core/inc                            # For app/commands.h
 )
