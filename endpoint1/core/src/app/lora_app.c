@@ -26,7 +26,7 @@ static UTIL_TIMER_Object_t tx_timer,
  * @brief Function to be executed on Radio Tx Done event
  */
 static void OnTxDone(void) {
-	Radio.Sleep();
+	Radio.Standby();
 	APP_LOG(TS_ON, "OnTxDone\n\r");
 
 	if (state == TX) {
@@ -48,7 +48,7 @@ static void OnTxDone(void) {
   * @param  snr received frame SNR
   */
 static void OnRxDone(uint8_t* payload, uint16_t size, int16_t rssi, int8_t snr) {
-	Radio.Sleep();
+	Radio.Standby();
 	APP_LOG(TS_ON, "OnRxDone\n\r");
 
 	if (size == LORA_APP_PAYLOAD_LEN) {
@@ -66,7 +66,7 @@ static void OnRxDone(uint8_t* payload, uint16_t size, int16_t rssi, int8_t snr) 
   * @brief Function executed on Radio Tx Timeout event
   */
 static void OnTxTimeout(void) {
-	Radio.Sleep();
+	Radio.Standby();
 	APP_LOG(TS_ON, "OnTxDone\n\r");
 
 	if (state == TX) {
@@ -84,7 +84,7 @@ static void OnTxTimeout(void) {
   * @brief Function executed on Radio Rx Timeout event
   */
 static void OnRxTimeout(void) {
-	Radio.Sleep();
+	Radio.Standby();
 	APP_LOG(TS_ON, "OnRxTimeout\n\r");
 
 	state = RX_TIMEOUT;
@@ -95,7 +95,7 @@ static void OnRxTimeout(void) {
   * @brief Function executed on Radio Rx Error event
   */
 static void OnRxError(void) {
-	Radio.Sleep();
+	Radio.Standby();
 	APP_LOG(TS_ON, "OnRxError\n\r");
 
 	state = RX_ERROR;
@@ -108,7 +108,7 @@ static void OnRxError(void) {
  * @param pkt pointer to packet_t object
  */
 static void lora_send(packet_t* pkt) {
-	Radio.Sleep();
+	Radio.Standby();
 
 	// SubGHz TX Configuration
 	Radio.SetChannel(LORA_APP_FREQ);
@@ -127,7 +127,7 @@ static void lora_send(packet_t* pkt) {
  * @param timeout maximum duration to keep listening for in milliseconds
  */
 static void lora_recv(uint32_t timeout) {
-	Radio.Sleep();
+	Radio.Standby();
 
 	// SubGHz RX Configuration
 	Radio.SetChannel(LORA_APP_FREQ);
@@ -190,7 +190,7 @@ static void OnAckLedTimer(void* p) {
 static void lora_app_process(void) {
 	uint32_t elapsed_time;
 
-	Radio.Sleep();
+	Radio.Standby();
 
 	switch (state) {
 	case TX:
@@ -305,9 +305,9 @@ static void lora_app_process(void) {
 							lora_recv(LORA_APP_RX_TIMEOUT - elapsed_time);
 						} else {
 							APP_LOG(TS_ON, "No commands received.\n\r");
+							Radio.Sleep();
 						}
 					}
-
 					break;
 				}
 			}
@@ -323,6 +323,7 @@ static void lora_app_process(void) {
 					lora_recv(LORA_APP_RX_TIMEOUT - elapsed_time);
 				} else {
 					APP_LOG(TS_ON, "No commands received.\n\r");
+					Radio.Sleep();
 				}
 			}
 
@@ -338,12 +339,14 @@ static void lora_app_process(void) {
 				lora_recv(LORA_APP_RX_TIMEOUT - elapsed_time);
 			} else {
 				APP_LOG(TS_ON, "No commands received.\n\r");
+				Radio.Sleep();
 			}
 		}
 		break;
 
 	case RX_TIMEOUT:
 		APP_LOG(TS_ON, "No commands received.\n\r");
+		Radio.Sleep();
 		break;
 
 	case RX_ERROR:
@@ -363,12 +366,15 @@ static void lora_app_process(void) {
 			lora_recv(LORA_APP_RX_TIMEOUT - elapsed_time);
 		} else {
 			APP_LOG(TS_ON, "No commands received.\n\r");
+			Radio.Sleep();
 		}
 
 		break;
 
 	case ACK_DONE:
 		APP_LOG(TS_ON, "Ack done\n\r");
+		Radio.Sleep();
+
 	case ACK_TIMEOUT:
 		break;
 	case UNEXPECTED:
@@ -410,6 +416,8 @@ void lora_app_init(void) {
 	RadioEvents.RxTimeout = OnRxTimeout;
 	RadioEvents.RxError = OnRxError;
 	Radio.Init(&RadioEvents);
+
+	Radio.Sleep();
 
 	// Register application process task
 	UTIL_SEQ_RegTask(LORA_APP_TASK_ID, UTIL_SEQ_DEFAULT, lora_app_process);
