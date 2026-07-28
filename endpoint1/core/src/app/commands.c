@@ -22,11 +22,11 @@ static uint8_t led_red_command(void* p) {
 	 */
 	switch (params[0]) {
 	case LED_RED_COMMAND_TURN_OFF:
-		HAL_GPIO_WritePin(LED3_GPIO_PORT, LED3_PIN, GPIO_PIN_RESET);
+		HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, GPIO_PIN_RESET);
 		return COMMAND_STATUS_OK;
 
 	case LED_RED_COMMAND_TURN_ON:
-		HAL_GPIO_WritePin(LED3_GPIO_PORT, LED3_PIN, GPIO_PIN_SET);
+		HAL_GPIO_WritePin(LED3_GPIO_Port, LED3_Pin, GPIO_PIN_SET);
 		return COMMAND_STATUS_OK;
 
 	default:
