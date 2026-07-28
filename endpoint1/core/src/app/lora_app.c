@@ -234,7 +234,6 @@ static void lora_app_process(void) {
 
 	case TX_TIMEOUT:
 		if (tx_retries < LORA_APP_TX_MAX_RETRIES) {
-			APP_LOG(TS_ON, "")
 			lora_send(&tx_pkt);
 			tx_retries++;
 		}
@@ -309,6 +308,7 @@ static void lora_app_process(void) {
 						} else {
 							APP_LOG(TS_ON, "No commands received.\n\r");
 						}
+						break;
 					}
 				}
 			}
@@ -415,3 +415,51 @@ void lora_app_init(void) {
 	// Register application process task
 	UTIL_SEQ_RegTask(LORA_APP_TASK_ID, UTIL_SEQ_DEFAULT, lora_app_process);
 }
+
+#ifdef BUILD_TESTING
+/* Test accessors ------------------------------------------------------------*/
+
+/**
+ * @brief Test-only accessors exposing the module's private event callbacks, as
+ * well as the main application process.
+ *
+ * @note Pointer-alias form (rather than forwarder wrappers) was chosen so
+ * that the test could, if ever needed, also inspect/replace the function at
+ * runtime. Otherwise, both forms reduce to the same call sequence at -O2.
+ */
+void (*test_OnTxDone)(void)					= OnTxDone;
+void (*test_OnRxDone)(uint8_t*, uint16_t,
+                      int16_t, int8_t)		= OnRxDone;
+void (*test_OnTxTimeout)(void)				= OnTxTimeout;
+void (*test_OnRxTimeout)(void)				= OnRxTimeout;
+void (*test_OnRxError)(void)				= OnRxError;
+void (*test_OnTxTimer)(void*)				= OnTxTimer;
+void (*test_OnTxLedTimer)(void*)			= OnTxLedTimer;
+void (*test_OnRxLedTimer)(void*)			= OnRxLedTimer;
+void (*test_OnAckLedTimer)(void*)			= OnAckLedTimer;
+void (*test_lora_app_process)(void)			= lora_app_process;
+
+/**
+ * @brief Test-only accessors exposing the module's private timer objects.
+ */
+UTIL_TIMER_Object_t *test_tx_timer      = &tx_timer;
+UTIL_TIMER_Object_t *test_tx_led_timer  = &tx_led_timer;
+UTIL_TIMER_Object_t *test_rx_led_timer  = &rx_led_timer;
+UTIL_TIMER_Object_t *test_ack_led_timer = &ack_led_timer;
+
+/**
+ * @brief Resets every private state variable with no exposed accessor to its
+ * initialization value.
+ */
+void test_reset_lora_app_state(void) {
+	state         = TX;           /* matches the implicit-zero value */
+	rx_error      = RX_ERROR_EXTERNAL;
+	timestamp     = 0;
+	tx_retries    = 0;
+	rx_start_time = 0;
+	memset(&rx_pkt, 0, sizeof(rx_pkt));
+	memset(&tx_pkt, 0, sizeof(tx_pkt));
+	tx_pkt.sof = LORA_APP_SOF;    /* restore SOF sentinel */
+}
+
+#endif
