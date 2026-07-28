@@ -39,14 +39,15 @@ function(add_cmock_test)
             ARG                              # Prefix for parsed variables
             ""                               # No boolean flags
             "NAME"                           # Single-value args: NAME
-            "SOURCES;MOCKS;INCLUDES"         # Multi-value args
+            "SOURCES;MOCKS;INCLUDES;COMPILE_DEFS"  # Multi-value args
             ${ARGN}                          # The actual arguments passed to the function
     )
     # After parsing, we can access:
-    #   ARG_NAME     = the test name (e.g. "test_commands")
-    #   ARG_SOURCES  = list of .c files to compile
-    #   ARG_MOCKS    = list of headers to generate mocks from
-    #   ARG_INCLUDES = list of directories to add to the include path
+    #   ARG_NAME         = the test name (e.g. "test_commands")
+    #   ARG_SOURCES      = list of .c files to compile
+    #   ARG_MOCKS        = list of headers to generate mocks from
+    #   ARG_INCLUDES     = list of directories to add to the include path
+    #   ARG_COMPILE_DEFS = list of -D defines private to this test target
 
     # ---- Generate mocks ----
     set(MOCK_OUTPUT_DIR ${CMAKE_CURRENT_BINARY_DIR}/mocks/${ARG_NAME})
@@ -89,6 +90,13 @@ function(add_cmock_test)
             cmock_lib
     )
 
+    # ---- Optional per-target compile definitions (e.g. BUILD_TESTING) ----
+    # Used to expose #ifdef-guarded SUT accessor blocks to a single test
+    # target without leaking the define into the production firmware build.
+    if(ARG_COMPILE_DEFS)
+        target_compile_definitions(${ARG_NAME} PRIVATE ${ARG_COMPILE_DEFS})
+    endif()
+
     # ---- Register with CTest ----
     add_test(NAME ${ARG_NAME} COMMAND ${ARG_NAME})
 endfunction()
@@ -106,4 +114,22 @@ add_cmock_test(
     INCLUDES
         ${CMAKE_CURRENT_SOURCE_DIR}/endpoint1/dummy_headers                # For main.h stub
         ${CMAKE_SOURCE_DIR}/endpoint1/core/inc                            # For app/commands.h
+)
+
+# Test 2 - endpoint1::lora_app.c (FSM smoke; FSM behavior tests follow in Phase 2b)
+add_cmock_test(
+    NAME test_lora_app
+    SOURCES
+        ${CMAKE_CURRENT_SOURCE_DIR}/endpoint1/test_lora_app.c             # The test file
+        ${CMAKE_SOURCE_DIR}/endpoint1/core/src/app/lora_app.c             # The unit under test
+        ${CMAKE_SOURCE_DIR}/endpoint1/core/src/app/commands.c             # lora_app.c calls into actuators[]; commands.c is CWM-y unpulled sibling dep
+    MOCKS
+        ${CMAKE_CURRENT_SOURCE_DIR}/endpoint1/dummy_headers/stm32_hal_gpio.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/endpoint1/dummy_headers/stm32_seq.h
+        ${CMAKE_CURRENT_SOURCE_DIR}/endpoint1/dummy_headers/stm32_timer.h
+    INCLUDES
+        ${CMAKE_CURRENT_SOURCE_DIR}/endpoint1/dummy_headers                # radio.h, sys_app.h, main.h etc.
+        ${CMAKE_SOURCE_DIR}/endpoint1/core/inc                            # app/lora_app.h, app/commands.h
+    COMPILE_DEFS
+        BUILD_TESTING                                                     # Exposes lora_app.c's #ifdef BUILD_TESTING accessors to this test target only
 )

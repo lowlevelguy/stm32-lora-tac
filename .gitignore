@@ -7,3 +7,4 @@ build/
 skills/
 .~lock*
 .agents/
+*/__pycache__/

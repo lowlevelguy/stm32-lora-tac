@@ -55,8 +55,8 @@
 
 /* ---- Debug LEDs ---- */
 #define UART_APP_LED_BLINK_DURATION		100
-#define UART_APP_LED_GPIO_PORT		GPIOB
-#define UART_APP_LED_GPIO_PIN		GPIO_PIN_11
+#define UART_APP_LED_GPIO_PORT			GPIOB
+#define UART_APP_LED_GPIO_PIN			GPIO_PIN_11
 
 
 /* MAC Layer Definition ------------------------------------------------------*/

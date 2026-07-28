@@ -291,8 +291,6 @@ static void lora_app_process(void) {
 						/* ---- SRS-ED-05 ---- */
 						APP_LOG(TS_ON, "data type: %u\n\r", tx_pkt.data_type);
 						lora_send(&tx_pkt);
-						break;
-
 					} else {
 						// Invalid command; go back into RX
 						APP_LOG(TS_ON, "Unrecognized actuator command "
@@ -308,8 +306,9 @@ static void lora_app_process(void) {
 						} else {
 							APP_LOG(TS_ON, "No commands received.\n\r");
 						}
-						break;
 					}
+
+					break;
 				}
 			}
 

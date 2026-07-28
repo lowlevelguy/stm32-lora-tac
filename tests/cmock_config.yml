@@ -4,4 +4,5 @@
     :plugins:
         - :expect
         - :ignore
+        - :ignore_arg
     :fail_on_unexpected_calls: true
