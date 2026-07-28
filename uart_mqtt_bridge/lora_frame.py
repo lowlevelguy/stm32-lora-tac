@@ -96,29 +96,19 @@ class LoraFrame:
 
     @classmethod
     def command_frame(
-        cls, source_addr: int, dest_addr: int, actuator_id: int, cmd: int
+        cls, dest_addr: int, actuator_id: int, cmd: int,
     ) -> "LoraFrame":
         """Build a Command frame (TypeID=0x02) for downlink (SRS-PY-04).
 
-        Data layout: ActuatorID | Cmd | 0x00 | 0x00.
+        SourceID is fixed to GatewayID (0x00): the endpoint sees the
+        command as arriving from the gateway / core network. Data layout:
+        ActuatorID | Cmd | 0x00 | 0x00.
         """
         return cls(
             source_addr=0x00,
             dest_addr=dest_addr,
             type_id=FrameType.COMMAND,
             data=bytes((actuator_id & 0xFF, cmd & 0xFF, 0x00, 0x00)),
-        )
-
-    @classmethod
-    def ack_frame(
-        cls, source_addr: int, dest_addr: int, actuator_id: int, status: int
-    ) -> "LoraFrame":
-        """Build an ACK frame (TypeID=0x03) for reference/testing."""
-        return cls(
-            source_addr=source_addr,
-            dest_addr=dest_addr,
-            type_id=FrameType.ACK,
-            data=bytes((actuator_id & 0xFF, status & 0xFF, 0x00, 0x00)),
         )
 
     # ------------------------------------------- telemetry typed views

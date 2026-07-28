@@ -11,15 +11,15 @@ Per MQTT Topic Map sheet (latest revision):
         -> enddev{SourceID}/ack    payload = 2 bytes: ActuatorID (1B) | Status (1B)
 
   Downlink (MQTT -> UART, SRS-PY-03 / SRS-PY-04):
-    Subscription wildcard: enddev+/actuator
+    Subscription wildcard: enddev+/actuator (normalised to +/actuator,
+        see DOWNLINK_TOPIC_WILDCARD below)
     MQTT payload: 2 bytes ActuatorID (1B) | Cmd (1B)
-    UART frame built: 0xA5 | GatewayID (0x01) | EndDeviceID | 0x02 |
+    UART frame built: 0xA5 | GatewayID (0x00) | EndDeviceID | 0x02 |
                       ActuatorID | Cmd | 0x00 | 0x00
 
-Note: the SRS Topic Map's example bytes for RSSI (`b'\\x88\\xFF'`) appear to
-be little-endian and contradict the "big-endian" label in the same row;
-we follow the explicit label and pack as big-endian. Flip the struct format
-string in `_rssi_payload` to '<h' if the live dashboard requires LE.
+RSSI is packed as int16 signed big-endian (struct '>h'): the SRS Topic
+Map row example b'\\xFF\\x88' decodes to exactly -120 under big-endian,
+matching the annotated value, so no endianness ambiguity exists.
 """
 
 import re
@@ -153,18 +153,16 @@ def parse_downlink_topic(topic: str) -> int | None:
 
 def build_downlink_frame(
     dest_addr: int, actuator_id: int, cmd: int,
-    *, source_addr: int = 0x01,
 ) -> bytes:
     """Build an 8-byte UART frame for a downlink actuator command.
 
     Per SRS-PY-04:
-      SOF=0xA5 | SourceID=GatewayID (0x01) | DestID=EndDeviceID |
+      SOF=0xA5 | SourceID=GatewayID (0x00) | DestID=EndDeviceID |
       TypeID=0x02 | ActuatorID | Cmd | 0x00 | 0x00
 
     Returns the raw 8 bytes ready to be written to the serial port.
     """
     frame = LoraFrame.command_frame(
-        source_addr=source_addr,
         dest_addr=dest_addr,
         actuator_id=actuator_id,
         cmd=cmd,

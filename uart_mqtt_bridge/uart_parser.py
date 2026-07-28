@@ -234,6 +234,9 @@ class UARTParser:
                         self._port = None
                 state = self._HUNT
                 payload.clear()
+                # Pace the first retry per SRS-PY-06 (every 2 s) -- without
+                # this sleep the loop immediately re-opens after a live drop.
+                time.sleep(UART_RECONNECT_INTERVAL_S)
                 continue
 
             if not chunk:

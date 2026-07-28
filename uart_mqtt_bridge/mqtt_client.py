@@ -1,15 +1,12 @@
 """MQTT gateway client — paho-mqtt wrapper with back-off reconnection.
 
-Current scope (SRS-PY-02, MQTT Topic Map sheet):
-    - publish telemetry uplink frames to test.mosquitto.org:1883
-
-Designed for extension (SRS-PY-03, SRS-PY-04):
-    - subscribe(topic, callback) API is present and functional; main loop
-      just does not call it yet. When downlink work begins, all that's
-      needed is to register a handler and forward it to the UART.
-
-SRS-PY-06: on MQTT disconnection, automatic reconnection every 5 s with
-exponential back-off capped at 60 s.
+Scope:
+    - SRS-PY-02:       publish telemetry uplink frames to
+                       test.mosquitto.org:1883.
+    - SRS-PY-03/04:    subscribe(topic, callback) API used by main.py to
+                       receive actuator-command downlink messages.
+    - SRS-PY-06:       on MQTT disconnection, automatic reconnection every
+                       5 s with exponential back-off capped at 60 s.
 """
 
 import logging
@@ -58,7 +55,8 @@ class MQTTGateway:
         self._stop_event = threading.Event()
         self._reconnect_thread: threading.Thread | None = None
 
-        # Registered downlink callbacks (future use).
+        # Registered downlink callbacks — populated by subscribe() and
+        # dispatched by _on_message when matching MQTT messages arrive.
         self._subscriptions: dict[str, DownlinkCallback] = {}
 
         # Observable stats.
@@ -109,8 +107,9 @@ class MQTTGateway:
     def subscribe(self, topic: str, callback: DownlinkCallback) -> None:
         """Register a downlink callback and subscribe to a topic.
 
-        Used when downlink handling is added (SRS-PY-03). For now it is
-        functional but idle — main loop never calls it.
+        Used by main.py to wire SRS-PY-03 actuator-command downlink
+        handling. Subscriptions are re-armed automatically on every
+        reconnect via _on_connect.
         """
         with self._lock:
             self._subscriptions[topic] = callback
@@ -144,7 +143,7 @@ class MQTTGateway:
             self._connected = False
 
     def _on_message(self, client, userdata, msg):
-        """Dispatch incoming messages — used by future downlink handlers."""
+        """Dispatch incoming MQTT messages to registered downlink callbacks."""
         with self._lock:
             callback = None
             for pattern, cb in self._subscriptions.items():
