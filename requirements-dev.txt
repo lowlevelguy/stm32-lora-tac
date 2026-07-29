@@ -1,0 +1,12 @@
+# Development / test dependencies for uart_mqtt_bridge.
+# Runtime deps live in uart_mqtt_bridge/requirements.txt; this file is
+# NOT needed to run the bridge itself, only to run its test suite:
+#
+#     pip install -r requirements-dev.txt
+#     pytest tests/uart_mqtt_bridge/
+#
+# Pin: pytest>=7.0 matches what the host ships (7.4.4). An upper bound
+# is intentionally omitted so a future 8.x or 9.x upgrade does not break
+# CI prematurely. The tests use plain asserts, parametrize, and the
+# unittest.mock.MagicMock already in stdlib -- no pytest plugins.
+pytest>=7.0
