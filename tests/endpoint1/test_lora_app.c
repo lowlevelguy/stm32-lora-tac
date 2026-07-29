@@ -39,6 +39,7 @@ static struct {
 	uint32_t     send_count;
 	uint32_t     rx_count;
 	uint32_t     sleep_count;
+	uint32_t	 standby_count;
 	uint32_t     init_count;
 	uint32_t     set_channel_count;
 	uint32_t     set_rx_config_count;
@@ -108,6 +109,10 @@ static void fake_Radio_Sleep(void) {
 	radio_history.sleep_count++;
 }
 
+static void fake_Radio_Standby(void) {
+	radio_history.standby_count++;
+}
+
 static void fake_Radio_Rx(uint32_t timeout) {
 	radio_history.last_rx_timeout = timeout;
 	radio_history.rx_count++;
@@ -126,6 +131,7 @@ const struct Radio_s Radio = {
 	.SetTxConfig         = fake_Radio_SetTxConfig,
 	.Send                = fake_Radio_Send,
 	.Sleep               = fake_Radio_Sleep,
+	.Standby			 = fake_Radio_Standby,
 	.Rx                  = fake_Radio_Rx,
 	.SetMaxPayloadLength = fake_Radio_SetMaxPayloadLength,
 };

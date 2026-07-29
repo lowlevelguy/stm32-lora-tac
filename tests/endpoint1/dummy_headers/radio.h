@@ -107,6 +107,7 @@ struct Radio_s {
                                   uint32_t timeout);
     radio_status_t (*Send)(uint8_t *buffer, uint8_t size);
     void           (*Sleep)(void);
+    void           (*Standby)(void);
     void           (*Rx)(uint32_t timeout);
     void           (*SetMaxPayloadLength)(RadioModems_t modem, uint8_t max);
 };
