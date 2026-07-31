@@ -36,8 +36,8 @@
 
 /* ---- Debug LEDs ---- */
 #define LORA_APP_LED_BLINK_DURATION		100
-#define LORA_APP_LED_GPIO_PORT			GPIOB
-#define LORA_APP_LED_GPIO_PIN			GPIO_PIN_9
+#define LORA_APP_LED_GPIO_PORT			LED2_GPIO_Port
+#define LORA_APP_LED_GPIO_PIN			LED2_Pin
 
 
 /* UART Application Configuration --------------------------------------------*/

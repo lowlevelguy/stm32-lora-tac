@@ -2,19 +2,27 @@
 
 #include "app/lora_app.h"
 
+#include "main.h"
 #include "platform.h"
 #include "sys_app.h"
 #include "radio.h"
 #include "stm32_seq.h"
 #include "stm32_timer.h"
-#include "usart.h"
 #include "app/uart_app.h"
 
 
+/**
+ * @brief Critical section macros; expand to no-ops in testing mode.
+ */
+#ifndef BUILD_TESTING
 #define LORA_APP_CRITICAL_SECTION_BEGIN() \
 	uint32_t primask = __get_PRIMASK(); __disable_irq()
 #define LORA_APP_CRITICAL_SECTION_END()	\
 	__set_PRIMASK(primask)
+#else
+#define LORA_APP_CRITICAL_SECTION_BEGIN() do { (void)0; } while(0)
+#define LORA_APP_CRITICAL_SECTION_END() do { (void)0; } while(0)
+#endif
 
 /* Bitmasks for ring buffer indexing.
  * Performing a bitwise AND with these masks corresponds to performing a modulo
@@ -420,3 +428,76 @@ AppStatus_t lora_schedule_send(packet_t* pkt) {
 	}
 	return APP_STATUS_OK;
 }
+
+#ifdef BUILD_TESTING
+/* ---- Test accessors -------------------------------------------------------*/
+
+/**
+ * @brief Test-only accessors exposing the module's private event callbacks, as
+ * well as the main application process.
+ *
+ * @note Pointer-alias form (rather than forwarder wrappers) was chosen so
+ * that the test could, if ever needed, also inspect/replace the function at
+ * runtime. Otherwise, both forms reduce to the same call sequence at -O2.
+ */
+void (*test_OnTxDone)(void)                      = OnTxDone;
+void (*test_OnRxDone)(uint8_t*, uint16_t,
+                      int16_t, int8_t)           = OnRxDone;
+void (*test_OnTxTimeout)(void)                   = OnTxTimeout;
+void (*test_OnRxTimeout)(void)                   = OnRxTimeout;
+void (*test_OnRxError)(void)                     = OnRxError;
+void (*test_OnLedTimer)(void*)                   = OnLedTimer;
+void (*test_lora_app_process)(void)              = lora_app_process;
+void (*test_lora_send)(void)                     = lora_send;
+void (*test_lora_recv)(void)                     = lora_recv;
+
+
+/**
+ * @brief Test-only accessors exposing the module's private state: timer and
+ * ring buffers.
+ */
+UTIL_TIMER_Object_t *test_led_timer              = &led_timer;
+
+/* ---- State Ring Buffer ---- */
+volatile enum ApplicationState *test_states      = states;
+volatile uint8_t *test_state_write_bufidx        = &state_write_bufidx;
+volatile uint8_t *test_state_read_bufidx         = &state_read_bufidx;
+
+/* ---- RX Ring Buffers ---- */
+packet_t *test_rx_pkts                           = rx_pkts;
+int16_t *test_rssis                              = rssis;
+int8_t *test_snrs                                = snrs;
+volatile uint8_t *test_rx_write_bufidx           = &rx_write_bufidx;
+volatile uint8_t *test_rx_read_bufidx            = &rx_read_bufidx;
+
+/* ---- TX Ring Buffers ---- */
+packet_t *test_tx_pkts                           = tx_pkts;
+uint8_t *test_tx_retries                         = tx_retries;
+volatile uint8_t *test_tx_write_bufidx           = &tx_write_bufidx;
+volatile uint8_t *test_tx_read_bufidx            = &tx_read_bufidx;
+volatile bool *test_tx_busy                      = &tx_busy;
+
+/**
+ * @brief Resets every private state variable with no exposed accessor to its
+ * initialization value; bar the timer.
+ */
+void test_reset_lora_app_state(void) {
+	state_write_bufidx = 0;
+	state_read_bufidx  = 0;
+	memset((void*)states, 0, sizeof(states));
+
+	rx_write_bufidx = 0;
+	rx_read_bufidx  = 0;
+	memset(rx_pkts, 0, sizeof(rx_pkts));
+	memset(rssis, 0, sizeof(rssis));
+	memset(snrs, 0, sizeof(snrs));
+
+	tx_write_bufidx = 0;
+	tx_read_bufidx  = 0;
+	memset(tx_pkts, 0, sizeof(tx_pkts));
+	memset(tx_retries, 0, sizeof(tx_retries));
+	tx_busy = false;
+
+	memset((void*)rx_error, 0, sizeof(rx_error));
+}
+#endif /* BUILD_TESTING */

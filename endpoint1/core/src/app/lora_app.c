@@ -456,7 +456,7 @@ UTIL_TIMER_Object_t *test_ack_led_timer = &ack_led_timer;
 
 /**
  * @brief Resets every private state variable with no exposed accessor to its
- * initialization value.
+ * initialization value; bar the timers.
  */
 void test_reset_lora_app_state(void) {
 	state         = TX;           /* matches the implicit-zero value */
