@@ -194,7 +194,7 @@ static void test_application_configuration_matches_srs(void) {
  *
  * @note Partially covers SRS-ED-01 testing.
  */
-static void test_lora_app_init_creates_timers_starts_tx_and_inits_radio(void) {
+static void test_lora_app_init_creates_and_starts_tx_timer_inits_radio_and_registers_task(void) {
 	/* As it currently is, lora_app_init makes no call to SetTask. However, if
 	 * it was ever to do so, that wouldn't break program logic; the SRS doesn't
 	 * specify if a telemetry TX should occur right after boot. */
@@ -216,14 +216,19 @@ static void test_lora_app_init_creates_timers_starts_tx_and_inits_radio(void) {
 
 	lora_app_init();
 
-	/* Radio.Init was called once with a non-empty RadioEvents_t. */
+	// Radio.Init called once with the correct RadioEvents_t fields
 	TEST_ASSERT_EQUAL_UINT32(1, radio_history.init_count);
 	TEST_ASSERT_TRUE(radio_history.init_events_captured);
-	TEST_ASSERT_NOT_NULL(radio_history.last_init_events.TxDone);
-	TEST_ASSERT_NOT_NULL(radio_history.last_init_events.RxDone);
-	TEST_ASSERT_NOT_NULL(radio_history.last_init_events.TxTimeout);
-	TEST_ASSERT_NOT_NULL(radio_history.last_init_events.RxTimeout);
-	TEST_ASSERT_NOT_NULL(radio_history.last_init_events.RxError);
+	TEST_ASSERT_EQUAL_PTR(*test_OnTxDone,
+						  radio_history.last_init_events.TxDone);
+	TEST_ASSERT_EQUAL_PTR(*test_OnRxDone,
+						  radio_history.last_init_events.RxDone);
+	TEST_ASSERT_EQUAL_PTR(*test_OnTxTimeout,
+						  radio_history.last_init_events.TxTimeout);
+	TEST_ASSERT_EQUAL_PTR(*test_OnRxTimeout,
+						  radio_history.last_init_events.RxTimeout);
+	TEST_ASSERT_EQUAL_PTR(*test_OnRxError,
+						  radio_history.last_init_events.RxError);
 }
 
 /**
@@ -609,7 +614,7 @@ int main(void) {
 	RUN_TEST(test_application_configuration_matches_srs);
 
 	/* Group 1: init sanity */
-	RUN_TEST(test_lora_app_init_creates_timers_starts_tx_and_inits_radio);
+	RUN_TEST(test_lora_app_init_creates_and_starts_tx_timer_inits_radio_and_registers_task);
 
 	/* Group 2: telemetry TX (SRS-ED-01 / 02) and TX-timeout retry */
 	RUN_TEST(test_telemetry_tx_sends_correct_packet_fields);
