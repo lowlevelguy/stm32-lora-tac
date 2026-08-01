@@ -1,0 +1,386 @@
+/*
+ * Hallmark dashboard tokens — single source of truth for the visual
+ * system. Resolved at runtime by QssBuilder.from_file() in styles.py
+ * before qApp.setStyleSheet() is called. Qt's native @variable
+ * handling is fragile; the Python pre-processor is the safe path
+ * (handoff § Token system, technical note).
+ *
+ * Font: FiraCode Nerd Font (user choice over handoff's JetBrains Mono
+ * default). Fallback chain resolves at QSS load time; the preferred
+ * face is verified via QFont.exactMatch() in main.py and a warning is
+ * logged if it isn't found on the host.
+ *
+ * Genre: atmospheric (dark paper, mono face, dual accent split).
+ * OKLCH origin labels are kept as comments per handoff slop-test
+ * gate #7; QSS only accepts hex, so we emit hex in the value column.
+ */
+
+/* ---- color tokens ----------------------------------------------- */
+@paper:        #1a1b1e;  /* oklch(16% 0.01 260) — deep-not-pure-black */
+@paper2:       #222426;  /* oklch(22% 0.005 260) — cards, tabs, inactive */
+@font:         #c8cacd;  /* oklch(80% 0.005 250) — primary body text */
+@font-muted:   #6a6c6e;  /* oklch(45% 0.005 250) — secondary, stale */
+@accent-amber: #e5a431;  /* oklch(72% 0.13 75)  — interaction (ON btn) */
+@accent-cyan:  #3ba8b8;  /* oklch(72% 0.08 200) — telemetry data */
+@accent-green: #4a9a6a;  /* oklch(65% 0.08 150) — ACK OK, connected */
+@accent-red:   #ca4a4a;  /* oklch(58% 0.16 25)  — disconnection, ERR */
+@focus:        #3ba8b8;  /* same cyan — tab-focus ring */
+@border:       #2a2b2e;  /* oklch(20% 0.005 250) — 1px rule between panes */
+
+/* ---- font token ------------------------------------------------- */
+/* FiraCode preferred; QSS fallback chain kicks in if the first face
+   is not installed (Qt silently walks the list at stylesheet parse). */
+@font-family: "FiraCode Nerd Font", "Consolas", "Noto Sans Mono", monospace;
+
+/* ---- spacing scale (4-pt) --------------------------------------- */
+@space-xs: 4px;
+@space-sm: 8px;
+@space-md: 16px;
+@space-lg: 24px;
+@space-xl: 32px;
+
+/* ---- radii (handoff slop-test gate #1: max 6px) ----------------- */
+@radius-sm: 4px;
+@radius-md: 6px;
+@radius-lg: 8px;  /* used sparingly — QTabWidget pill-clip only */
+
+/* ---- timing ----------------------------------------------------- */
+/* Data-arrival opacity crossfade only (handoff motion-cut stance). */
+@dur-normal: 150ms;
+@ease:       ease-out;
+
+/* ================================================================ */
+/* Body rules follow. QssBuilder collects the @name: value; lines  */
+/* above into a dict and substitutes @name everywhere below.        */
+/* ================================================================ */
+
+/* ---- root ------------------------------------------------------- */
+QWidget {
+    background: @paper;
+    color: @font;
+    font-family: @font-family;
+    font-size: 10pt;
+}
+
+QMainWindow {
+    background: @paper;
+}
+
+/* ---- left rail (QListWidget-as-nav) ----------------------------- */
+QListWidget#navRail {
+    background: @paper;
+    border: none;
+    border-right: 1px solid @border;
+    outline: 0;
+    font-family: @font-family;
+    font-size: 9pt;
+    padding: @space-sm 0;
+}
+QListWidget#navRail::item {
+    color: @font-muted;
+    padding: @space-md @space-xs;
+    border-left: 2px solid transparent;
+}
+QListWidget#navRail::item:hover {
+    color: @font;
+    background: @paper2;
+}
+QListWidget#navRail::item:focus {
+    /* handoff slop-test gate #6: evident focus ring, no animation */
+    border-left: 2px solid @focus;
+    color: @font;
+}
+QListWidget#navRail::item:selected {
+    /* active nav entry — accent-cyan left rule, brighter text */
+    border-left: 2px solid @accent-cyan;
+    color: @font;
+    background: @paper2;
+}
+/* never: disabled — rail items are navigation, always enabled */
+/* never: loading / error / success — rail items are static nav */
+
+/* ---- QStackedWidget (page container) --------------------------- */
+QStackedWidget {
+    background: @paper;
+    border: none;
+}
+
+/* ---- section heads (handoff § Font pairing) -------------------- */
+QLabel#sectionHead {
+    font-family: @font-family;
+    font-size: 11pt;
+    font-weight: 600;
+    color: @font;
+    padding: @space-md @space-lg @space-sm @space-lg;
+    background: transparent;
+}
+
+/* ---- live readout bar (MONITOR tab) ----------------------------- */
+QLabel#readout {
+    font-family: @font-family;
+    font-size: 10pt;
+    color: @font;
+    padding: @space-xs @space-sm;
+}
+QLabel#readoutValue {
+    /* the numeric half of a readout pair (e.g. "0x1A") */
+    font-family: @font-family;
+    font-size: 10pt;
+    font-weight: 600;
+    color: @accent-cyan;
+    padding: @space-xs @space-sm;
+}
+QLabel#readoutValue.stale {
+    color: @font-muted;
+}
+
+/* ---- telemetry chart (pyqtgraph PlotWidget) -------------------- */
+PlotWidget {
+    background: @paper;
+    border: 1px solid @border;
+    border-radius: @radius-sm;
+}
+/* PlotWidget has no interaction states beyond hover tooltip; the
+   hover state is handled by pyqtgraph's SceneLabel, not QSS. */
+
+/* ---- ACK badge (MONITOR) ---------------------------------------- */
+QLabel#ackBadge {
+    font-family: @font-family;
+    font-size: 10pt;
+    font-weight: 600;
+    padding: @space-sm @space-md;
+    border-radius: @radius-sm;
+    border: 1px solid @border;
+    color: @font-muted;
+    background: @paper2;
+}
+QLabel#ackBadge[state="ok"] {
+    color: @paper;
+    background: @accent-green;
+    border: 1px solid @accent-green;
+}
+QLabel#ackBadge[state="err"] {
+    color: @paper;
+    background: @accent-red;
+    border: 1px solid @accent-red;
+}
+QLabel#ackBadge[state="none"] {
+    color: @font-muted;
+    background: @paper2;
+    border: 1px solid @border;
+}
+/* no hover/focus/disabled — passive display */
+
+/* ---- QSplitter (resizable rail divider) ------------------------- */
+QSplitter::handle {
+    background: @paper;
+    width: 4px;
+}
+QSplitter::handle:hover {
+    background: @accent-amber;
+}
+QSplitter::handle:pressed {
+    background: @accent-cyan;
+}
+
+/* ---- QComboBox (CONTROL tab) ------------------------------------ */
+QComboBox {
+    background: @paper2;
+    color: @font;
+    border: 1px solid @border;
+    border-radius: @radius-sm;
+    padding: @space-sm @space-md;
+    font-family: @font-family;
+    font-size: 10pt;
+}
+QComboBox:hover {
+    border: 1px solid @accent-amber;
+}
+QComboBox:focus {
+    /* handoff slop-test gate #6 */
+    border: 1px solid @focus;
+}
+QComboBox:disabled {
+    color: @font-muted;
+    background: @paper;
+}
+/* never: loading / error / success — combo is a static selector */
+QComboBox QAbstractItemView {
+    background: @paper2;
+    color: @font;
+    border: 1px solid @border;
+    selection-background-color: @accent-cyan;
+    selection-color: @paper;
+    outline: 0;
+}
+
+/* ---- QLineEdit (ALIASES fields, CONTROL int field) -------------- */
+QLineEdit {
+    background: @paper2;
+    color: @font;
+    border: 1px solid @border;
+    border-radius: @radius-sm;
+    padding: @space-sm @space-md;
+    font-family: @font-family;
+    font-size: 10pt;
+    selection-background-color: @accent-cyan;
+    selection-color: @paper;
+}
+QLineEdit:hover {
+    border: 1px solid @accent-amber;
+}
+QLineEdit:focus {
+    /* handoff slop-test gate #6 */
+    border: 1px solid @focus;
+}
+QLineEdit:disabled {
+    color: @font-muted;
+    background: @paper;
+}
+QLineEdit:read-only {
+    color: @font-muted;
+    background: @paper;
+}
+
+/* ---- QGroupBox (ALIASES sensor/actuator groups) ------------------ */
+QGroupBox {
+    background: @paper2;
+    border: 1px solid @border;
+    border-radius: @radius-md;
+    margin-top: @space-md;
+    padding: @space-sm @space-md @space-md @space-md;
+    font-family: @font-family;
+    font-size: 9pt;
+    color: @font-muted;
+}
+QGroupBox::title {
+    subcontrol-origin: margin;
+    subcontrol-position: top left;
+    left: @space-md;
+    padding: 0 @space-xs;
+    color: @font;
+    font-weight: 600;
+}
+
+/* ---- QPushButton (CONTROL tab: ON / OFF) ----------------------- */
+/* All 8 states authored per handoff § UI component inventory.     */
+QPushButton {
+    background: @paper2;
+    color: @font;
+    border: 1px solid @border;
+    border-radius: @radius-sm;
+    padding: @space-sm @space-md;
+    font-family: @font-family;
+    font-size: 10pt;
+    font-weight: 600;
+}
+QPushButton:hover {
+    border: 1px solid @accent-amber;
+    color: @font;
+}
+QPushButton:focus {
+    /* handoff slop-test gate #6: evident ring, no animation */
+    border: 1px solid @focus;
+}
+QPushButton:pressed {
+    background: @accent-amber;
+    color: @paper;
+    border: 1px solid @accent-amber;
+}
+QPushButton:disabled {
+    /* loading pseudo-state: "SENDING…" text in muted color */
+    color: @font-muted;
+    background: @paper;
+    border: 1px solid @border;
+}
+QPushButton[role="on"] {
+    /* default appearance of the ON button: amber-weighted */
+    background: @accent-amber;
+    color: @paper;
+    border: 1px solid @accent-amber;
+}
+QPushButton[role="on"]:hover {
+    background: @accent-amber;
+    color: @paper;
+    border: 1px solid @font;
+}
+QPushButton[role="off"] {
+    /* default appearance of the OFF button: paper2, inactive */
+    background: @paper2;
+    color: @font-muted;
+    border: 1px solid @border;
+}
+QPushButton[role="off"]:hover {
+    border: 1px solid @accent-amber;
+    color: @font;
+}
+QPushButton[state="error"] {
+    /* transient: publish failed — red border for 2 s */
+    border: 1px solid @accent-red;
+    color: @accent-red;
+}
+QPushButton[state="success"] {
+    /* transient: brief green flash (authoritative ACK is the badge) */
+    border: 1px solid @accent-green;
+    color: @accent-green;
+}
+
+/* ---- QPlainTextEdit (DEBUG tab log) ---------------------------- */
+QPlainTextEdit#debugLog {
+    background: @paper2;
+    color: @font;
+    border: 1px solid @border;
+    border-radius: @radius-sm;
+    font-family: @font-family;
+    font-size: 9pt;
+    padding: @space-sm;
+}
+QPlainTextEdit#debugLog {
+    /* read-only — no interaction states */
+}
+
+/* ---- QStatusBar (status strip) ---------------------------------- */
+QStatusBar {
+    background: @paper2;
+    color: @font-muted;
+    border-top: 1px solid @border;
+    font-family: @font-family;
+    font-size: 9pt;
+    font-weight: 500;
+    padding: @space-xs @space-md;
+}
+QStatusBar::item {
+    border: none;
+}
+QStatusBar QLabel#brokerState[state="connected"] {
+    color: @accent-green;
+}
+QStatusBar QLabel#brokerState[state="disconnected"] {
+    color: @accent-red;
+}
+QStatusBar QLabel#brokerState[state="failed"] {
+    color: @accent-red;
+}
+
+/* ---- scrollbar (minimal, matches dark paper) ------------------- */
+QScrollBar:vertical {
+    background: @paper;
+    width: 10px;
+    border: none;
+}
+QScrollBar::handle:vertical {
+    background: @border;
+    border-radius: @radius-sm;
+    min-height: 24px;
+}
+QScrollBar::handle:vertical:hover {
+    background: @font-muted;
+}
+QScrollBar::add-line:vertical,
+QScrollBar::sub-line:vertical {
+    height: 0;
+}
+QScrollBar:horizontal {
+    /* handoff slop-test gate #9: no horizontal scroll on any pane */
+    height: 0;
+}
