@@ -99,6 +99,7 @@ static void lora_send() {
 	// Trap if the SubGHz TX is busy. This state should never be reached.
 	if (tx_busy) {
 		lora_trap();
+		return;
 	}
 
 	LORA_APP_CRITICAL_SECTION_BEGIN();

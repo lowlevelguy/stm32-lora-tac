@@ -360,7 +360,8 @@ static void drive_into_rx_listen(uint32_t fake_tick_at_listen) {
  * @param opcode integer value indicating the operation to execute on the
  * actuator
  *
- * @return Return the thus built packet.
+ * @return Returns a packet with actuator ID {@code actuator_id}, and command
+ * opcode {@code opcode}.
  */
 static packet_t make_gateway_command(uint8_t actuator_id, uint8_t opcode) {
 	packet_t p = {

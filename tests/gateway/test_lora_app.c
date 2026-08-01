@@ -47,7 +47,7 @@ extern void test_reset_lora_app_state(void);
 static struct {
 	packet_t      last_packet;
 	uint16_t      last_size;
-	uint32_t      last_rx_timeout;
+	bool		  last_rx_continuous;
 	RadioEvents_t last_init_events;
 	bool          init_events_captured;
 	uint32_t      send_count;
@@ -109,7 +109,8 @@ static void fake_Radio_SetRxConfig(RadioModems_t modem, uint32_t bandwidth,
 	UNUSED(coderate);     UNUSED(bandwidthAfc);   UNUSED(preambleLen);
 	UNUSED(symbTimeout);  UNUSED(fixLen);         UNUSED(payloadLen);
 	UNUSED(crcOn);        UNUSED(freqHopOn);      UNUSED(hopPeriod);
-	UNUSED(iqInverted);   UNUSED(rxContinuous);
+	UNUSED(iqInverted);
+	radio_history.last_rx_continuous = rxContinuous;
 	radio_history.set_rx_config_count++;
 }
 
@@ -144,7 +145,7 @@ static void fake_Radio_Standby(void) {
 }
 
 static void fake_Radio_Rx(uint32_t timeout) {
-	radio_history.last_rx_timeout = timeout;
+	UNUSED(timeout);
 	radio_history.rx_count++;
 }
 
@@ -240,16 +241,304 @@ void tearDown(void) {
 }
 
 
-/* Smoke Tests --------------------------------------------------------------*/
+/* Unit Tests ----------------------------------------------------------------*/
 /**
- * @brief Sanity check that APP_SOF matches the SRS value.
+ * @brief Application configuration test.
  *
- * Verifies the dummy include chain resolves and the test binary links.
- * The 13 test groups from the handoff are added incrementally in
- * subsequent iterations; this lone smoke test is the green baseline.
+ * @note Partially covers SRS-GW-01, and ensures the LoRa modulation params
+ * match those specified for the endpoint in SRS-ED-06.
  */
-void test_sof_matches_srs(void) {
+void test_application_configuration_matches_srs(void) {
+	/* ---- SRS-GW-01 ---- */
 	TEST_ASSERT_EQUAL_UINT8(0xA5, APP_SOF);
+
+	/* ---- SRS-ED-06 ---- */
+	TEST_ASSERT_EQUAL_UINT32(433000000, LORA_APP_FREQ);
+	TEST_ASSERT_EQUAL_UINT32(0, LORA_APP_BW);			// 125kHz BW maps to 0
+	TEST_ASSERT_EQUAL_UINT32(7, LORA_APP_SF);
+	TEST_ASSERT_EQUAL_UINT32(1, LORA_APP_CODINGRATE);	// 4/5 coding rate maps to 1
+	TEST_ASSERT_EQUAL_UINT8(14, LORA_APP_TX_POWER);
+}
+
+/**
+ * @brief Test LoRa app initialization.
+ */
+void test_lora_app_init_registers_tasks_and_inits_radio(void) {
+	// Ignore debug LED
+	UTIL_TIMER_Create_IgnoreAndReturn(UTIL_TIMER_OK);
+
+	// Expect sequencer tasks registration
+	for (int i = 0; i < LORA_APP_TASK_MAX_COUNT; i++) {
+		UTIL_SEQ_RegTask_Expect(LORA_APP_TASK_BASE_ID << i,
+		                        UTIL_SEQ_DEFAULT,
+		                        *test_lora_app_process);
+		UTIL_SEQ_RegTask_IgnoreArg_Flags();
+	}
+
+	lora_app_init();
+
+	// Radio.Init called once with the correct RadioEvents_t fields
+	TEST_ASSERT_EQUAL_UINT32(1, radio_history.init_count);
+	TEST_ASSERT_TRUE(radio_history.init_events_captured);
+	TEST_ASSERT_EQUAL_PTR(*test_OnTxDone,
+		radio_history.last_init_events.TxDone);
+	TEST_ASSERT_EQUAL_PTR(*test_OnRxDone,
+		radio_history.last_init_events.RxDone);
+	TEST_ASSERT_EQUAL_PTR(*test_OnTxTimeout,
+		radio_history.last_init_events.TxTimeout);
+	TEST_ASSERT_EQUAL_PTR(*test_OnRxTimeout,
+		radio_history.last_init_events.RxTimeout);
+	TEST_ASSERT_EQUAL_PTR(*test_OnRxError,
+		radio_history.last_init_events.RxError);
+
+
+	// lora_recv called once, w/ continuous RX mode config
+	TEST_ASSERT_EQUAL_UINT32(1, radio_history.standby_count);
+	TEST_ASSERT_EQUAL_UINT32(1, radio_history.set_channel_count);
+	TEST_ASSERT_EQUAL_UINT32(1, radio_history.set_rx_config_count);
+	TEST_ASSERT_EQUAL_UINT32(1,
+	                         radio_history.set_max_payload_length_count);
+	TEST_ASSERT_EQUAL_UINT32(1, radio_history.rx_count);
+	TEST_ASSERT_TRUE(radio_history.last_rx_continuous);
+
+	// TX-specific counters unchanged
+	TEST_ASSERT_EQUAL_UINT32(0, radio_history.send_count);
+	TEST_ASSERT_EQUAL_UINT32(0, radio_history.set_tx_config_count);
+	TEST_ASSERT_EQUAL_UINT32(0, radio_history.sleep_count);
+}
+
+
+/**
+ * @brief Helper function for invoking lora_app_init with its associated
+ * _Ignore's.
+ */
+static void drive_init(void) {
+	UTIL_TIMER_Create_IgnoreAndReturn(UTIL_TIMER_OK);
+
+	UTIL_SEQ_RegTask_Ignore();
+
+	lora_app_init();
+}
+
+/**
+ * @brief Helper function to build a packet with a toy source address.
+ *
+ * @param src_addr Address of the device from which the packet originates.
+ *
+ * @return Returns a packet with source address {@code src_addr}, valid SOF,
+ * and otherwise garbage entries.
+ */
+static packet_t make_sentinel_packet(uint8_t src_addr) {
+	packet_t p = {
+		.sof = APP_SOF,
+		.source_addr = src_addr,
+		.dest_addr = 0xF3,
+		.data_type = 0x12,
+		.data = { 0x01, 0x02, 0x03, 0x04 }
+	};
+	return p;
+}
+
+/**
+ * @brief Tests that lora_send claims, configures and drives the SubGHz radio TX
+ * when the TX FIFO has at least one queued packet and tx_busy is false.
+ */
+void test_lora_send_on_non_empty_ring_and_non_busy_tx_claims_configures_and_drives_tx(void) {
+	// Push one packet to TX FIFO
+	packet_t p = make_sentinel_packet(0xBB);
+	memcpy(&test_tx_pkts[0], &p, sizeof(packet_t));
+
+	*test_tx_write_bufidx = 1;
+	*test_tx_read_bufidx = 0;
+	*test_tx_busy = false;
+
+	uint32_t set_channels_before = radio_history.set_channel_count,
+		set_tx_configs_before	 = radio_history.set_tx_config_count,
+		set_max_payload_before   = radio_history.set_max_payload_length_count,
+		standby_before           = radio_history.standby_count,
+		sends_before			 = radio_history.send_count;
+
+	test_lora_send();
+
+	/* Verify calls to Radio.Standby, Radio.SetTxConfig, Radio.Send and
+	 * Radio.SetMaxPayloadLength. */
+	TEST_ASSERT_EQUAL_UINT32(standby_before + 1,
+		radio_history.standby_count);
+	TEST_ASSERT_EQUAL_UINT32(set_channels_before + 1,
+		radio_history.set_channel_count);
+	TEST_ASSERT_EQUAL_UINT32(set_tx_configs_before + 1,
+		radio_history.set_tx_config_count);
+	TEST_ASSERT_EQUAL_UINT32(set_max_payload_before + 1,
+		radio_history.set_max_payload_length_count);
+	TEST_ASSERT_EQUAL_UINT32(sends_before + 1,
+		radio_history.send_count);
+}
+
+/**
+ * @brief Tests lora_send early return path when TX FIFO is empty.
+ */
+void test_lora_send_on_empty_ring_returns_without_send(void) {
+	*test_tx_write_bufidx = 0;
+	*test_tx_read_bufidx = 0;
+
+	uint32_t standby_before		= radio_history.standby_count,
+		set_channels_before		= radio_history.set_channel_count,
+		set_tx_configs_before	= radio_history.set_tx_config_count,
+		set_max_payload_before	= radio_history.set_max_payload_length_count,
+		sends_before			= radio_history.send_count;
+
+	test_lora_send();
+
+	// No radio driver API calls made
+	TEST_ASSERT_EQUAL_UINT32(standby_before, radio_history.standby_count);
+	TEST_ASSERT_EQUAL_UINT32(set_channels_before,
+		radio_history.set_channel_count);
+	TEST_ASSERT_EQUAL_UINT32(set_tx_configs_before,
+		radio_history.set_tx_config_count);
+	TEST_ASSERT_EQUAL_UINT32(set_max_payload_before,
+		radio_history.set_max_payload_length_count);
+	TEST_ASSERT_EQUAL_UINT32(sends_before, radio_history.send_count);
+	TEST_ASSERT_FALSE(*test_tx_busy);
+}
+
+/**
+ * @brief Tests lora_send no-op path when TX resource is already claimed.
+ *
+ * @note In debug builds, lora_send traps into an infinite loop when this
+ * happens. Otherwise, this is an early return path.
+ */
+void test_lora_send_when_tx_busy_is_no_op(void) {
+	// Push one packet to TX FIFO
+	packet_t p = make_sentinel_packet(0xBB);
+	memcpy(&test_tx_pkts[0], &p, sizeof(packet_t));
+
+	*test_tx_write_bufidx = 1;
+	*test_tx_read_bufidx = 0;
+	*test_tx_busy = true;
+
+	uint32_t standby_before		= radio_history.standby_count,
+		set_channels_before		= radio_history.set_channel_count,
+		set_tx_configs_before	= radio_history.set_tx_config_count,
+		set_max_payload_before	= radio_history.set_max_payload_length_count,
+		sends_before			= radio_history.send_count;
+
+	test_lora_send();
+
+	// No radio driver API calls made
+	TEST_ASSERT_EQUAL_UINT32(standby_before, radio_history.standby_count);
+	TEST_ASSERT_EQUAL_UINT32(set_channels_before,
+		radio_history.set_channel_count);
+	TEST_ASSERT_EQUAL_UINT32(set_tx_configs_before,
+		radio_history.set_tx_config_count);
+	TEST_ASSERT_EQUAL_UINT32(set_max_payload_before,
+		radio_history.set_max_payload_length_count);
+	TEST_ASSERT_EQUAL_UINT32(sends_before, radio_history.send_count);
+	TEST_ASSERT_TRUE(*test_tx_busy);
+}
+
+/**
+ * @brief Tests immediate TX start following a push to empty FIFO.
+ *
+ * @note Partially covers SRS-GW-03.
+ */
+void test_lora_schedule_send_on_empty_buffer_kicks_lora_send(void) {
+	drive_init();
+
+	packet_t p = make_sentinel_packet(0xAA);
+
+	uint32_t sends_before    = radio_history.send_count;
+	uint32_t standby_before  = radio_history.standby_count;
+
+	AppStatus_t s = lora_schedule_send(&p);
+	// Sanity check
+	TEST_ASSERT_EQUAL_INT(APP_STATUS_OK, s);
+
+	// Expected behaviour: 1 lora_send call
+	TEST_ASSERT_EQUAL_UINT32(standby_before + 1,
+							 radio_history.standby_count);
+	TEST_ASSERT_EQUAL_UINT32(sends_before + 1, radio_history.send_count);
+
+	// Verifying integrity of the forwarded packet
+	TEST_ASSERT_EQUAL_UINT8(sizeof(packet_t), radio_history.last_size);
+	TEST_ASSERT_EQUAL_MEMORY_ARRAY(&p, &radio_history.last_packet,
+		1, sizeof(packet_t));
+
+	// TX resource should be claimed until OnTxDone or OnTxTimeout
+	TEST_ASSERT_TRUE(*test_tx_busy);
+
+	// First enqueue lands in slot 0 with retries reset.
+	TEST_ASSERT_EQUAL_UINT8(p.source_addr,
+		test_tx_pkts[0].source_addr);
+	TEST_ASSERT_EQUAL_UINT8(1, *test_tx_write_bufidx);
+	TEST_ASSERT_EQUAL_UINT8(0, test_tx_retries[0]);
+}
+
+/**
+ * @brief Tests TX FIFO enqueue below maximum threshold.
+ */
+void test_lora_schedule_send_fills_to_capacity_without_extra_sends(void) {
+	drive_init();
+
+	packet_t p[LORA_APP_TX_MAX_COUNT];
+
+	// First enqueue kicks lora_send, claims tx_busy.
+	p[0] = make_sentinel_packet(0xA0);
+	(void)lora_schedule_send(&p[0]);
+
+	uint32_t sends_after_first = radio_history.send_count;
+
+	// Enqueue additional packets until FIFO is full
+	for (int i = 1; i < LORA_APP_TX_MAX_COUNT; i++) {
+		p[i] = make_sentinel_packet(0xA0 + i);
+		TEST_ASSERT_EQUAL_INT(APP_STATUS_OK, lora_schedule_send(&p[i]));
+	}
+
+	// First TX is yet unfinished; no call to lora_send should've been made
+	TEST_ASSERT_EQUAL_UINT32(sends_after_first, radio_history.send_count);
+
+	// Check FIFO order correctness, and retries counters reset
+	TEST_ASSERT_EQUAL_UINT8(LORA_APP_TX_MAX_COUNT, *test_tx_write_bufidx);
+	for (int i = 0; i < LORA_APP_TX_MAX_COUNT; i++) {
+		TEST_ASSERT_EQUAL_MEMORY_ARRAY(&p[i], &test_tx_pkts[i],
+			1, sizeof(packet_t));
+		TEST_ASSERT_EQUAL_UINT8(0, test_tx_retries[i]);
+	}
+
+	// tx_busy still claimed from the first lora_send.
+	TEST_ASSERT_TRUE(*test_tx_busy);
+}
+
+/**
+ * @brief Tests TX packet drop beyond FIFO maximum threshold.
+ */
+void test_lora_schedule_send_on_full_buffer_returns_error(void) {
+	drive_init();
+
+	packet_t p[LORA_APP_TX_MAX_COUNT+1];
+
+	// Fill FIFO
+	for (uint8_t i = 0; i < LORA_APP_TX_MAX_COUNT; i++) {
+		p[i] = make_sentinel_packet(i);
+		(void)lora_schedule_send(&p[i]);
+	}
+
+	TEST_ASSERT_EQUAL_UINT8(LORA_APP_TX_MAX_COUNT, *test_tx_write_bufidx);
+	uint32_t sends_after_fill = radio_history.send_count;
+
+	// 5th packet must be dropped
+	p[LORA_APP_TX_MAX_COUNT] = make_sentinel_packet(0xFF);
+	TEST_ASSERT_EQUAL_INT(APP_STATUS_ERR_TX_BUFFER_FULL,
+		lora_schedule_send(&p[LORA_APP_TX_MAX_COUNT]));
+
+	// No further Radio.Send calls
+	TEST_ASSERT_EQUAL_UINT32(sends_after_fill, radio_history.send_count);
+
+	// Verify the ring buffer is unaffected
+	TEST_ASSERT_EQUAL_UINT8(LORA_APP_TX_MAX_COUNT, *test_tx_write_bufidx);
+	for (int i = 0; i < LORA_APP_TX_MAX_COUNT; i++) {
+		TEST_ASSERT_EQUAL_MEMORY_ARRAY(&p[i], &test_tx_pkts[i],
+			1, sizeof(packet_t));
+	}
 }
 
 
@@ -257,7 +546,17 @@ void test_sof_matches_srs(void) {
 int main(void) {
 	UNITY_BEGIN();
 
-	RUN_TEST(test_sof_matches_srs);
+	RUN_TEST(test_application_configuration_matches_srs);
+
+	RUN_TEST(test_lora_app_init_registers_tasks_and_inits_radio);
+
+	RUN_TEST(test_lora_send_on_non_empty_ring_and_non_busy_tx_claims_configures_and_drives_tx);
+	RUN_TEST(test_lora_send_on_empty_ring_returns_without_send);
+	RUN_TEST(test_lora_send_when_tx_busy_is_no_op);
+
+	RUN_TEST(test_lora_schedule_send_on_empty_buffer_kicks_lora_send);
+	RUN_TEST(test_lora_schedule_send_fills_to_capacity_without_extra_sends);
+	RUN_TEST(test_lora_schedule_send_on_full_buffer_returns_error);
 
 	return UNITY_END();
 }
