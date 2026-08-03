@@ -477,6 +477,7 @@ uint8_t *test_tx_retries                         = tx_retries;
 volatile uint8_t *test_tx_write_bufidx           = &tx_write_bufidx;
 volatile uint8_t *test_tx_read_bufidx            = &tx_read_bufidx;
 volatile bool *test_tx_busy                      = &tx_busy;
+volatile enum RxErrorType *test_rx_error          = rx_error;
 
 /**
  * @brief Resets every private state variable with no exposed accessor to its

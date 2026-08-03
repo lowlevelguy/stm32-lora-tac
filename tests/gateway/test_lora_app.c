@@ -2,6 +2,7 @@
 #include <string.h>
 
 #include "app/lora_app.h"
+#include "app/app_state.h"
 
 #include "main.h"
 #include "radio.h"
@@ -39,6 +40,7 @@ extern uint8_t *test_tx_retries;
 extern volatile uint8_t *test_tx_write_bufidx;
 extern volatile uint8_t *test_tx_read_bufidx;
 extern volatile bool *test_tx_busy;
+extern volatile enum RxErrorType *test_rx_error;
 
 extern void test_reset_lora_app_state(void);
 
@@ -263,7 +265,7 @@ void test_application_configuration_matches_srs(void) {
 /**
  * @brief Test LoRa app initialization.
  */
-void test_lora_app_init_registers_tasks_and_inits_radio(void) {
+void test_lora_app_init_registers_tasks_inits_radio_and_starts_rx(void) {
 	// Ignore debug LED
 	UTIL_TIMER_Create_IgnoreAndReturn(UTIL_TIMER_OK);
 
@@ -291,13 +293,12 @@ void test_lora_app_init_registers_tasks_and_inits_radio(void) {
 	TEST_ASSERT_EQUAL_PTR(*test_OnRxError,
 		radio_history.last_init_events.RxError);
 
-
 	// lora_recv called once, w/ continuous RX mode config
 	TEST_ASSERT_EQUAL_UINT32(1, radio_history.standby_count);
 	TEST_ASSERT_EQUAL_UINT32(1, radio_history.set_channel_count);
 	TEST_ASSERT_EQUAL_UINT32(1, radio_history.set_rx_config_count);
 	TEST_ASSERT_EQUAL_UINT32(1,
-	                         radio_history.set_max_payload_length_count);
+		radio_history.set_max_payload_length_count);
 	TEST_ASSERT_EQUAL_UINT32(1, radio_history.rx_count);
 	TEST_ASSERT_TRUE(radio_history.last_rx_continuous);
 
@@ -306,7 +307,6 @@ void test_lora_app_init_registers_tasks_and_inits_radio(void) {
 	TEST_ASSERT_EQUAL_UINT32(0, radio_history.set_tx_config_count);
 	TEST_ASSERT_EQUAL_UINT32(0, radio_history.sleep_count);
 }
-
 
 /**
  * @brief Helper function for invoking lora_app_init with its associated
@@ -449,13 +449,17 @@ void test_lora_schedule_send_on_empty_buffer_kicks_lora_send(void) {
 	uint32_t sends_before    = radio_history.send_count;
 	uint32_t standby_before  = radio_history.standby_count;
 
-	AppStatus_t s = lora_schedule_send(&p);
+	// Empty ring buffer
+	*test_tx_write_bufidx = 0;
+	*test_tx_read_bufidx = 0;
+	*test_tx_busy = false;
+
 	// Sanity check
-	TEST_ASSERT_EQUAL_INT(APP_STATUS_OK, s);
+	TEST_ASSERT_EQUAL_INT(APP_STATUS_OK, lora_schedule_send(&p));
 
 	// Expected behaviour: 1 lora_send call
 	TEST_ASSERT_EQUAL_UINT32(standby_before + 1,
-							 radio_history.standby_count);
+		radio_history.standby_count);
 	TEST_ASSERT_EQUAL_UINT32(sends_before + 1, radio_history.send_count);
 
 	// Verifying integrity of the forwarded packet
@@ -463,13 +467,14 @@ void test_lora_schedule_send_on_empty_buffer_kicks_lora_send(void) {
 	TEST_ASSERT_EQUAL_MEMORY_ARRAY(&p, &radio_history.last_packet,
 		1, sizeof(packet_t));
 
-	// TX resource should be claimed until OnTxDone or OnTxTimeout
+	// TX resource should remain claimed until OnTxDone or OnTxTimeout
 	TEST_ASSERT_TRUE(*test_tx_busy);
 
 	// First enqueue lands in slot 0 with retries reset.
-	TEST_ASSERT_EQUAL_UINT8(p.source_addr,
-		test_tx_pkts[0].source_addr);
+	TEST_ASSERT_EQUAL_MEMORY_ARRAY(&p, &test_tx_pkts[0],
+		1, sizeof(packet_t));
 	TEST_ASSERT_EQUAL_UINT8(1, *test_tx_write_bufidx);
+	TEST_ASSERT_EQUAL_UINT8(0, *test_tx_read_bufidx);
 	TEST_ASSERT_EQUAL_UINT8(0, test_tx_retries[0]);
 }
 
@@ -478,6 +483,11 @@ void test_lora_schedule_send_on_empty_buffer_kicks_lora_send(void) {
  */
 void test_lora_schedule_send_fills_to_capacity_without_extra_sends(void) {
 	drive_init();
+
+	// Start with empty ring buffer
+	*test_tx_write_bufidx = 0;
+	*test_tx_read_bufidx = 0;
+	*test_tx_busy = false;
 
 	packet_t p[LORA_APP_TX_MAX_COUNT];
 
@@ -493,19 +503,18 @@ void test_lora_schedule_send_fills_to_capacity_without_extra_sends(void) {
 		TEST_ASSERT_EQUAL_INT(APP_STATUS_OK, lora_schedule_send(&p[i]));
 	}
 
-	// First TX is yet unfinished; no call to lora_send should've been made
+	// TX resource still claimed; no extra call to lora_send should've been made
+	TEST_ASSERT_TRUE(*test_tx_busy);
 	TEST_ASSERT_EQUAL_UINT32(sends_after_first, radio_history.send_count);
 
 	// Check FIFO order correctness, and retries counters reset
 	TEST_ASSERT_EQUAL_UINT8(LORA_APP_TX_MAX_COUNT, *test_tx_write_bufidx);
+	TEST_ASSERT_EQUAL_UINT8(0, *test_tx_read_bufidx);
 	for (int i = 0; i < LORA_APP_TX_MAX_COUNT; i++) {
 		TEST_ASSERT_EQUAL_MEMORY_ARRAY(&p[i], &test_tx_pkts[i],
 			1, sizeof(packet_t));
 		TEST_ASSERT_EQUAL_UINT8(0, test_tx_retries[i]);
 	}
-
-	// tx_busy still claimed from the first lora_send.
-	TEST_ASSERT_TRUE(*test_tx_busy);
 }
 
 /**
@@ -516,6 +525,11 @@ void test_lora_schedule_send_on_full_buffer_returns_error(void) {
 
 	packet_t p[LORA_APP_TX_MAX_COUNT+1];
 
+	// Start with empty buffer
+	*test_tx_write_bufidx = 0;
+	*test_tx_read_bufidx = 0;
+	*test_tx_busy = false;
+
 	// Fill FIFO
 	for (uint8_t i = 0; i < LORA_APP_TX_MAX_COUNT; i++) {
 		p[i] = make_sentinel_packet(i);
@@ -525,7 +539,7 @@ void test_lora_schedule_send_on_full_buffer_returns_error(void) {
 	TEST_ASSERT_EQUAL_UINT8(LORA_APP_TX_MAX_COUNT, *test_tx_write_bufidx);
 	uint32_t sends_after_fill = radio_history.send_count;
 
-	// 5th packet must be dropped
+	// Overflowing packet must be dropped
 	p[LORA_APP_TX_MAX_COUNT] = make_sentinel_packet(0xFF);
 	TEST_ASSERT_EQUAL_INT(APP_STATUS_ERR_TX_BUFFER_FULL,
 		lora_schedule_send(&p[LORA_APP_TX_MAX_COUNT]));
@@ -541,6 +555,208 @@ void test_lora_schedule_send_on_full_buffer_returns_error(void) {
 	}
 }
 
+/**
+ * @brief Tests that OnTxDone clears tx_busy, enqueues TX_DONE into the state
+ * ring and fires UTIL_SEQ_SetTask with the correct task ID.
+ */
+void test_OnTxDone_frees_tx_enqueues_TX_DONE_and_fires_task(void) {
+	// Simulate ongoing TX
+	*test_tx_busy = true;
+
+	// Empty state ring buffer
+	*test_state_write_bufidx = 0;
+	*test_state_read_bufidx = 0;
+
+	// Expect base task to be set
+	UTIL_SEQ_SetTask_Expect(LORA_APP_TASK_BASE_ID, CFG_SEQ_Prio_0);
+	UTIL_SEQ_SetTask_IgnoreArg_Task_Prio();
+
+	test_OnTxDone();
+
+	// Verify that the TX resource is now freed
+	TEST_ASSERT_FALSE(*test_tx_busy);
+
+	// Check that the state ring buffer now contains one entry: TX_DONE
+	TEST_ASSERT_EQUAL_UINT8(1, *test_state_write_bufidx);
+	TEST_ASSERT_EQUAL_UINT8(0, *test_state_read_bufidx);
+	/* enum ApplicationState promotes to int, and standard integer-promotion
+	 * rules preserve values for our enumerator range (0..4), so the cast is
+	 * value-safe across all compilers. */
+	TEST_ASSERT_EQUAL_INT(TX_DONE, test_states[0]);
+}
+
+/**
+ * @brief Tests that OnTxDone, on full state FIFO, frees TX resource but skips
+ * task enqueue.
+ */
+void test_OnTxDone_on_full_state_buffer_frees_tx_but_skips_task_enqueue(void) {
+	// Simulate ongoing TX
+	*test_tx_busy = true;
+
+	enum ApplicationState state_rbuf_before[LORA_APP_TASK_MAX_COUNT];
+
+	// Fill state ring buffer
+	for (int i = 0; i < LORA_APP_TX_MAX_COUNT; i++) {
+		test_states[i] = i;
+		state_rbuf_before[i] = i;
+	}
+	*test_state_write_bufidx = LORA_APP_TASK_MAX_COUNT;
+	*test_state_read_bufidx  = 0;
+
+	test_OnTxDone();
+
+	// Verify that the TX resource is now freed
+	TEST_ASSERT_FALSE(*test_tx_busy);
+
+	// Verify that the state ring buffer is unchanged
+	TEST_ASSERT_EQUAL_UINT8(LORA_APP_TASK_MAX_COUNT, *test_state_write_bufidx);
+	TEST_ASSERT_EQUAL_UINT8(0, *test_state_read_bufidx);
+	TEST_ASSERT_EQUAL_MEMORY_ARRAY(state_rbuf_before, test_states,
+		sizeof(enum ApplicationState), LORA_APP_TX_MAX_COUNT);
+}
+
+
+/**
+ * @brief Tests that OnRxDone, on a matching payload size (+ non-full state and
+ * RX buffers), enqueues RX_DONE, copies payload into rx_pkts[], rssi into
+ * rssis[] and snr into snrs[].
+ */
+void test_OnRxDone_on_matching_payload_size_enqueues_RX_DONE_and_copies_to_rx_rings(void) {
+	// Build matching size packet
+	packet_t p = make_sentinel_packet(0xAA);
+
+	// Expect base task to be set
+	UTIL_SEQ_SetTask_Expect(LORA_APP_TASK_BASE_ID, 0);
+	UTIL_SEQ_SetTask_IgnoreArg_Task_Prio();
+
+	// Simulate successful RX
+	test_OnRxDone((uint8_t*)&p, sizeof(p), -57, 7);
+
+	// Check that the state ring buffer now contains one entry: RX_DONE
+	TEST_ASSERT_EQUAL_UINT8(1, *test_state_write_bufidx);
+	TEST_ASSERT_EQUAL_UINT8(0, *test_state_read_bufidx);
+	/* enum ApplicationState promotes to int, and standard integer-promotion
+	 * rules preserve values for our enumerator range (0..4), so the cast is
+	 * value-safe across all compilers. */
+	TEST_ASSERT_EQUAL_INT(RX_DONE, test_states[0]);
+
+	// Check that the RX ring buffers now contain one entry each
+	TEST_ASSERT_EQUAL_UINT8(1, *test_rx_write_bufidx);
+	TEST_ASSERT_EQUAL_UINT8(0, *test_rx_read_bufidx);
+
+	TEST_ASSERT_EQUAL_MEMORY_ARRAY(&p, &test_rx_pkts[0],
+		1, sizeof(packet_t));
+	TEST_ASSERT_EQUAL_INT16(-57, test_rssis[0]);
+	TEST_ASSERT_EQUAL_INT8(7, test_snrs[0]);
+}
+
+/**
+ * @brief Tests that OnRxDone, on payload size mismatch (+ non-full state ring
+ * buffer), enqueues RX_ERROR + RX_ERROR_SIZE_MISMATCH.
+ */
+void test_OnRxDone_on_size_mismatch_enqueues_RX_ERROR_SIZE_MISMATCH(void) {
+	// Build mismatching size payload
+	uint8_t buf[LORA_APP_PAYLOAD_LEN - 1] = {0};
+
+	// Expect base task to be set
+	UTIL_SEQ_SetTask_Expect(LORA_APP_TASK_BASE_ID, 0);
+	UTIL_SEQ_SetTask_IgnoreArg_Task_Prio();
+
+	// Simulate successful RX
+	test_OnRxDone(buf, sizeof(buf), -57, 7);
+
+	/* Check that the state ring buffer now contains one entry: RX_ERROR, and
+	 * the RX error ring buffer: RX_ERROR_SIZE_MISMATCH. */
+	TEST_ASSERT_EQUAL_UINT8(1, *test_state_write_bufidx);
+	TEST_ASSERT_EQUAL_UINT8(0, *test_state_read_bufidx);
+	/* enum ApplicationState and enum RxErrorType promote to int, and standard
+	 * integer-promotion rules preserve values for our enumerator ranges
+	 * (0..4 and 0..2), so the cast is value-safe across all compilers. */
+	TEST_ASSERT_EQUAL_INT(RX_ERROR, test_states[0]);
+	TEST_ASSERT_EQUAL_INT(RX_ERROR_SIZE_MISMATCH, test_rx_error[0]);
+
+	// Check that the RX ring remains unchanged
+	TEST_ASSERT_EQUAL_UINT8(0, *test_rx_write_bufidx);
+	TEST_ASSERT_EQUAL_UINT8(0, *test_rx_read_bufidx);
+}
+
+/**
+ * @brief Tests that OnRxDone, on a matching size payload but full RX ring
+ * buffer (+ non-full state ring buffer), enqueues RX_ERROR +
+ * RX_ERROR_RX_BUFFER_FULL.
+ */
+void test_OnRxDone_on_full_rx_ring_enqueues_RX_ERROR_RX_BUFFER_FULL(void) {
+	packet_t p[LORA_APP_RX_MAX_COUNT+1];
+	for (int i = 0; i < LORA_APP_RX_MAX_COUNT; i++) {
+		p[i] = make_sentinel_packet(0xA0 + i);
+		test_rx_pkts[i] = p[i];
+	}
+
+	// Simulate full ring buffer
+	*test_rx_write_bufidx = LORA_APP_RX_MAX_COUNT;
+	*test_rx_read_bufidx = 0;
+
+	// Build matching size packet
+	p[LORA_APP_RX_MAX_COUNT] = make_sentinel_packet(0xFF);
+
+	// Expect base task to be set
+	UTIL_SEQ_SetTask_Expect(LORA_APP_TASK_BASE_ID, 0);
+	UTIL_SEQ_SetTask_IgnoreArg_Task_Prio();
+
+	// Simulate successful RX
+	test_OnRxDone((uint8_t*)&p[LORA_APP_RX_MAX_COUNT], sizeof(packet_t), -57, 7);
+
+	/* Check that the state ring buffer now contains one entry: RX_ERROR, and
+	 * the RX error ring buffer: RX_ERROR_RX_BUFFER_FULL. */
+	TEST_ASSERT_EQUAL_UINT8(1, *test_state_write_bufidx);
+	TEST_ASSERT_EQUAL_UINT8(0, *test_state_read_bufidx);
+	/* enum ApplicationState and enum RxErrorType promote to int, and standard
+	 * integer-promotion rules preserve values for our enumerator ranges
+	 * (0..4 and 0..2), so the cast is value-safe across all compilers. */
+	TEST_ASSERT_EQUAL_INT(RX_ERROR, test_states[0]);
+	TEST_ASSERT_EQUAL_INT(RX_ERROR_RX_BUFFER_FULL, test_rx_error[0]);
+
+	// Check that the RX ring buffer is untouched
+	TEST_ASSERT_EQUAL_UINT8(LORA_APP_RX_MAX_COUNT, *test_rx_write_bufidx);
+	TEST_ASSERT_EQUAL_UINT8(0, *test_rx_read_bufidx);
+	TEST_ASSERT_EQUAL_MEMORY_ARRAY(p, test_rx_pkts,
+		LORA_APP_PAYLOAD_LEN, LORA_APP_RX_MAX_COUNT);
+}
+
+/**
+ * @brief Tests OnRxDone early return path on state-ring exhaustion.
+ */
+void test_OnRxDone_on_full_state_ring_early_returns(void) {
+	enum ApplicationState state_rbuf_before[LORA_APP_TASK_MAX_COUNT];
+
+	// Fill state ring buffer
+	for (int i = 0; i < LORA_APP_TASK_MAX_COUNT; i++) {
+		test_states[i] = i;
+		state_rbuf_before[i] = i;
+	}
+	*test_state_write_bufidx = LORA_APP_TASK_MAX_COUNT;
+	*test_state_read_bufidx  = 0;
+
+	// Build matching size packet
+	packet_t p = make_sentinel_packet(0xAA);
+	// Build mismatching size packet
+	uint8_t buf[LORA_APP_PAYLOAD_LEN-1] = {0};
+
+	// Simulate both matching and mismatching RXs
+	test_OnRxDone((uint8_t*)&p, sizeof(p), -57, 7);
+	test_OnRxDone(buf, sizeof(buf), -57, 7);
+
+	// State ring buffer untouched
+	TEST_ASSERT_EQUAL_UINT8(LORA_APP_TASK_MAX_COUNT, *test_state_write_bufidx);
+	TEST_ASSERT_EQUAL_UINT8(0, *test_state_read_bufidx);
+	TEST_ASSERT_EQUAL_MEMORY_ARRAY(state_rbuf_before, test_states,
+		sizeof(enum ApplicationState), LORA_APP_TASK_MAX_COUNT);
+
+	// RX ring buffer still empty
+	TEST_ASSERT_EQUAL_UINT8(0, *test_rx_write_bufidx);
+	TEST_ASSERT_EQUAL_UINT8(0, *test_rx_read_bufidx);
+}
+
 
 /* Test Runner --------------------------------------------------------------*/
 int main(void) {
@@ -548,7 +764,7 @@ int main(void) {
 
 	RUN_TEST(test_application_configuration_matches_srs);
 
-	RUN_TEST(test_lora_app_init_registers_tasks_and_inits_radio);
+	RUN_TEST(test_lora_app_init_registers_tasks_inits_radio_and_starts_rx);
 
 	RUN_TEST(test_lora_send_on_non_empty_ring_and_non_busy_tx_claims_configures_and_drives_tx);
 	RUN_TEST(test_lora_send_on_empty_ring_returns_without_send);
@@ -557,6 +773,14 @@ int main(void) {
 	RUN_TEST(test_lora_schedule_send_on_empty_buffer_kicks_lora_send);
 	RUN_TEST(test_lora_schedule_send_fills_to_capacity_without_extra_sends);
 	RUN_TEST(test_lora_schedule_send_on_full_buffer_returns_error);
+
+	RUN_TEST(test_OnTxDone_frees_tx_enqueues_TX_DONE_and_fires_task);
+	RUN_TEST(test_OnTxDone_on_full_state_buffer_frees_tx_but_skips_task_enqueue);
+
+	RUN_TEST(test_OnRxDone_on_matching_payload_size_enqueues_RX_DONE_and_copies_to_rx_rings);
+	RUN_TEST(test_OnRxDone_on_size_mismatch_enqueues_RX_ERROR_SIZE_MISMATCH);
+	RUN_TEST(test_OnRxDone_on_full_rx_ring_enqueues_RX_ERROR_RX_BUFFER_FULL);
+	RUN_TEST(test_OnRxDone_on_full_state_ring_early_returns);
 
 	return UNITY_END();
 }
